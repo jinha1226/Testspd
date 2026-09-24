@@ -24,3 +24,5 @@ godot --headless --path . --script res://tests/smoke.gd
 ```
 
 첫 테스트는 50개 시드에서 시작 지점에서 계단까지 연결되는지와 시야·턴·물약·하강을 확인합니다. 출처와 라이선스는 [ATTRIBUTION.md](ATTRIBUTION.md)에 정리했습니다. 이 폴더의 원본 스프라이트는 코드로 다시 그린 에셋이 아닙니다.
+
+GitHub Actions의 [Godot tests](.github/workflows/godot-tests.yml)는 `main` 푸시와 풀 리퀘스트마다 Godot 4.6.2 임포트, 위 스모크 테스트, 메인 씬 로딩을 실행합니다. Actions 탭에서 수동 실행도 할 수 있습니다.

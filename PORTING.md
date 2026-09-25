@@ -16,7 +16,7 @@
 | `items/potions/PotionOfHealing`, `actors/buffs/Healing` | `run.gd` | 최대 HP의 80% + 14만큼을 저장하고 남은 회복량의 25%씩 턴마다 회복. 해로운 상태 해제는 미포함. |
 | `levels/Patch.java`, `levels/painters/RegularPainter.java`, `levels/painters/SewerPainter.java` | `spd_patch.gd`, `run.gd` | 강제 점유율과 3×3 군집화, 하수도 물 30%·풀 20%, 키 큰 풀과 벽 주변 장식. 원본 방별 배치 가능 셀은 미이식. |
 | `tiles/DungeonTileSheet.java` | `main.gd` | 평면 타일 인덱스와 물 가장자리 4방향 비트를 적용. 원본의 높은 벽·애니메이션 물 레이어는 미이식. |
-| `Dungeon.saveGame`·`loadGame`, `GamesInProgress` | `spd_save.gd`, `run.gd`, `main.gd` | 지도·적·난수·행동 시간의 Godot 형식 저장/재개, 6개 슬롯 API, 현재 화면의 1번 슬롯 자동 저장·재개. 원본 Java Bundle 세이브 가져오기와 슬롯 선택 UI는 미이식. |
+| `Dungeon.saveGame`·`loadGame`, `GamesInProgress` | `spd_save.gd`, `run.gd`, `main.gd` | 지도·적·난수·행동 시간의 Godot 형식 저장/재개와 6개 슬롯 선택·자동 저장. 원본 Java Bundle 세이브 가져오기와 브라우저 파일 내보내기·가져오기는 미이식. |
 
 `run.gd`의 방·복도 생성, 물약 배치, 적 상태 전이와 버프를 포함한 전체 턴 순서는 아직 원본 `RegularLevel`·방 빌더·`Actor` 전체 이식이 아닙니다. 5층 보스 Goo와 6층 이후 지역도 미이식이며, 현재는 하수도 적 구성으로 계속 진행됩니다. 이후에는 층 생성 구조와 나머지 스케줄러를 옮긴 뒤, 아이템·직업·UI를 각각 원본 코드 및 실제 동작과 대조해야 합니다.
 

@@ -22,8 +22,10 @@ var message_label: Label
 var wait_button: Button
 var potion_button: Button
 var restart_button: Button
+var slot_button: OptionButton
 var auto_path: Array[Vector2i] = []
 var auto_elapsed := 0.0
+var active_slot := 1
 var autosave_enabled := true
 var save_failed := false
 
@@ -33,8 +35,8 @@ func _ready() -> void:
 	var ui_theme := Theme.new()
 	ui_theme.default_font = UI_FONT
 	theme = ui_theme
-	if SpdSave.exists(1):
-		if not SpdSave.load(run, 1):
+	if SpdSave.exists(active_slot):
+		if not SpdSave.load(run, active_slot):
 			run.start()
 			autosave_enabled = false
 			run.message = "저장 파일을 읽지 못했습니다. 새 게임을 누르면 새로 저장합니다."
@@ -64,6 +66,12 @@ func _create_ui() -> void:
 	wait_button = _button("대기", _on_wait)
 	potion_button = _button("물약", _on_potion)
 	restart_button = _button("새 게임", _on_restart)
+	slot_button = OptionButton.new()
+	for slot in range(1, SpdSave.SLOT_COUNT + 1):
+		slot_button.add_item("슬롯 %d" % slot, slot)
+	slot_button.selected = active_slot - 1
+	slot_button.item_selected.connect(_on_slot_selected)
+	add_child(slot_button)
 
 
 func _button(caption: String, callback: Callable) -> Button:
@@ -80,10 +88,12 @@ func _layout_ui() -> void:
 	status_label.size = Vector2(size.x - 24, 28)
 	message_label.position = Vector2(12, 45)
 	message_label.size = Vector2(size.x - 24, 37)
-	var width := (size.x - 40.0) / 3.0
-	for index in range(3):
-		var button: Button = [wait_button, potion_button, restart_button][index]
-		button.position = Vector2(10.0 + index * (width + 10.0), size.y - 72.0)
+	var width := (size.x - 30.0) / 2.0
+	var controls: Array[Control] = [wait_button, potion_button, restart_button, slot_button]
+	for index in range(controls.size()):
+		var button: Control = controls[index]
+		button.position = Vector2(10.0 + (index % 2) * (width + 10.0),
+			size.y - 136.0 + int(index / 2) * 64.0)
 		button.size = Vector2(width, 52)
 
 
@@ -302,6 +312,28 @@ func _on_restart() -> void:
 	_refresh()
 
 
+func _on_slot_selected(index: int) -> void:
+	var slot := index + 1
+	if slot == active_slot:
+		return
+	auto_path.clear()
+	var selected_run = Run.new()
+	if SpdSave.exists(slot):
+		if not SpdSave.load(selected_run, slot):
+			slot_button.select(active_slot - 1)
+			message_label.text = "슬롯 %d의 저장 파일을 읽지 못했습니다." % slot
+			return
+	else:
+		selected_run.start()
+		selected_run.message = "슬롯 %d에서 새 게임을 시작했습니다." % slot
+	run = selected_run
+	active_slot = slot
+	slot_button.select(index)
+	autosave_enabled = true
+	save_failed = false
+	_refresh()
+
+
 func _refresh() -> void:
 	status_label.text = "%d층  HP %d/%d  물약 %d  턴 %d" % [
 		run.depth, run.hp, run.max_hp, run.potion_count, run.turns
@@ -309,7 +341,7 @@ func _refresh() -> void:
 	message_label.text = run.message
 	potion_button.disabled = run.potion_count == 0 or run.hp >= run.max_hp
 	if autosave_enabled:
-		var saved: bool = SpdSave.save(run, 1)
+		var saved: bool = SpdSave.save(run, active_slot)
 		if not saved and not save_failed:
 			message_label.text += " 저장에 실패했습니다."
 		save_failed = not saved

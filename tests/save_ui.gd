@@ -27,8 +27,21 @@ func _check_screen(screen: Control, expected_turns: int, expected_hero: Vector2i
 	if not SpdSave.load(saved, 1) or saved.turns != expected_turns + 1:
 		_fail("main scene did not autosave the next action")
 		return
+	screen._on_slot_selected(1)
+	if screen.active_slot != 2 or screen.run.turns != 0:
+		_fail("selecting an empty second slot did not start an independent run")
+		return
+	screen._on_wait()
+	if not SpdSave.exists(2):
+		_fail("second slot was not saved")
+		return
+	screen._on_slot_selected(0)
+	if screen.active_slot != 1 or screen.run.turns != expected_turns + 1:
+		_fail("returning to first slot lost progress")
+		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SpdSave.slot_path(1)))
-	print("SPD save UI passed: resume and autosave")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SpdSave.slot_path(2)))
+	print("SPD save UI passed: resume, autosave, and six-slot switching")
 	quit()
 
 

@@ -1,4 +1,4 @@
-# Shattered Pixel Dungeon → Godot: 첫 실행 버전
+# Shattered Pixel Dungeon → Godot: 하수도 이식 진행본
 
 이 폴더는 루트의 `잿빛 원정`과 **분리된 Godot 4.6 프로젝트**입니다. 원본 전체 게임을 복제한 상태는 아닙니다. SPD의 첫 던전 루프를 옮겨, 이 기반에서 어떤 시스템을 더할지 판단할 수 있는 첫 실행 버전입니다.
 
@@ -23,7 +23,7 @@ godot --headless --path . --editor --import --quit
 godot --headless --path . --script res://tests/smoke.gd
 ```
 
-첫 테스트는 50개 시드에서 시작 지점에서 계단까지 연결되는지와 시야·1층 적 구성·명중·턴·물약·하강을 확인합니다. 출처와 라이선스는 [ATTRIBUTION.md](ATTRIBUTION.md)에 정리했습니다. 이 폴더의 원본 스프라이트는 코드로 다시 그린 에셋이 아닙니다.
+첫 테스트는 50개 시드에서 시작 지점에서 계단까지 연결되는지와 시야·하수도 적 구성·명중·턴·물약·하강을 확인합니다. 별도 폰트 테스트는 한글 글리프와 UI 폰트 적용을 확인합니다. 출처와 라이선스는 [ATTRIBUTION.md](ATTRIBUTION.md)에 정리했습니다. 이 폴더의 원본 스프라이트는 코드로 다시 그린 에셋이 아닙니다.
 
 GitHub Actions의 [Godot tests](.github/workflows/godot-tests.yml)는 `main` 푸시와 풀 리퀘스트마다 Godot 4.6.2 임포트, 위 스모크 테스트, 메인 씬 로딩을 실행합니다. Actions 탭에서 수동 실행도 할 수 있습니다.
 

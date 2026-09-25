@@ -1,5 +1,5 @@
 extends RefCounted
-## First-floor Godot port in progress; see PORTING.md for exact upstream mappings.
+## Sewer-region Godot port in progress; see PORTING.md for exact upstream mappings.
 
 const ShadowCaster = preload("res://spd_shadowcaster.gd")
 const SpdCombat = preload("res://spd_combat.gd")

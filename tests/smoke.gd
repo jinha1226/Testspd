@@ -1,6 +1,8 @@
 extends SceneTree
 
 const Run = preload("res://run.gd")
+const ShadowCaster = preload("res://spd_shadowcaster.gd")
+const SpdCombat = preload("res://spd_combat.gd")
 
 
 func _initialize() -> void:
@@ -15,9 +17,54 @@ func _initialize() -> void:
 			push_error("invalid initial state for seed %d" % seed_value)
 			quit(1)
 			return
+		if run.mobs.size() != 8:
+			push_error("expected eight preset mobs on floor 1 for seed %d; got %d" % [seed_value, run.mobs.size()])
+			quit(1)
+			return
+		var rats := 0
+		var snakes := 0
+		for mob in run.mobs:
+			if mob["kind"] == "rat":
+				rats += 1
+			elif mob["kind"] == "snake":
+				snakes += 1
+			if mob["hp"] != SpdCombat.mob_hp(mob["kind"]) or run.is_visible(mob["pos"]):
+				push_error("invalid initial mob for seed %d" % seed_value)
+				quit(1)
+				return
+		if rats != 6 or snakes != 2:
+			push_error("wrong depth-1 mob rotation for seed %d" % seed_value)
+			quit(1)
+			return
+
+	var blocking := PackedByteArray()
+	blocking.resize(11 * 11)
+	blocking[5 * 11 + 6] = 1
+	var fov: PackedByteArray = ShadowCaster.cast_shadow(Vector2i(5, 5), 11, 11, blocking, 8)
+	if fov[5 * 11 + 6] != 1 or fov[5 * 11 + 7] != 0 or fov[5 * 11 + 4] != 1:
+		push_error("shadowcasting failed to show a wall and hide cells behind it")
+		quit(1)
+		return
+	var combat_rng := RandomNumberGenerator.new()
+	combat_rng.seed = 123
+	var rat_hits := 0
+	var snake_hits := 0
+	for trial in range(500):
+		if SpdCombat.warrior_attacks_mob(combat_rng, "rat", false)["hit"]:
+			rat_hits += 1
+		if SpdCombat.warrior_attacks_mob(combat_rng, "snake", false)["hit"]:
+			snake_hits += 1
+		if not SpdCombat.warrior_attacks_mob(combat_rng, "snake", true)["hit"]:
+			push_error("surprise attack against a snake missed")
+			quit(1)
+			return
+	if rat_hits <= snake_hits:
+		push_error("snake's original evasion is not reflected in combat")
+		quit(1)
+		return
 
 	run.start(42)
-	run.rats.clear()
+	run.mobs.clear()
 	var adjacent := Vector2i.ZERO
 	for direction in Run.DIRS8:
 		if run.tile_at(run.hero + direction) == Run.FLOOR:
@@ -35,14 +82,20 @@ func _initialize() -> void:
 		push_error("opening a door failed")
 		quit(1)
 		return
-	run.rats.append({"pos": neighbor, "hp": 5})
+	run.mobs.append({"kind": "rat", "pos": neighbor, "hp": SpdCombat.RAT_HP,
+		"state": "sleeping", "enemy_seen": false, "target": neighbor})
 	var attack_turn: int = run.turns
-	run.step(adjacent)
-	if run.turns != attack_turn + 1 or run.hero != hero_before or run.rats[0]["hp"] >= 5:
+	var dealt_damage := false
+	for attempt in range(12):
+		run.step(adjacent)
+		if run.mobs.is_empty() or run.mobs[0]["hp"] < SpdCombat.RAT_HP:
+			dealt_damage = true
+			break
+	if run.turns <= attack_turn or run.hero != hero_before or not dealt_damage:
 		push_error("attacking an adjacent rat failed")
 		quit(1)
 		return
-	run.rats.clear()
+	run.mobs.clear()
 	var first_turn: int = run.turns
 	run.wait_turn()
 	if run.turns != first_turn + 1:
@@ -51,8 +104,13 @@ func _initialize() -> void:
 		return
 	run.hp = 10
 	run.potion_count = 1
-	if not run.drink_potion() or run.hp != 18 or run.potion_count != 0:
+	if not run.drink_potion() or run.hp != 18 or run.potion_count != 0 or run.healing_left != 22:
 		push_error("potion use failed")
+		quit(1)
+		return
+	run.wait_turn()
+	if run.hp != run.max_hp or run.healing_left >= 22:
+		push_error("potion did not continue healing on the next turn")
 		quit(1)
 		return
 	var moved_down := false
@@ -67,7 +125,7 @@ func _initialize() -> void:
 		push_error("descending stairs failed")
 		quit(1)
 		return
-	print("SPD port smoke passed: 50 connected seeds, sight, turns, potion, descent")
+	print("SPD port smoke passed: 50 connected seeds, FOV, floor-1 mobs, combat, healing, descent")
 	quit()
 
 

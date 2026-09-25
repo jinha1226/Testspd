@@ -4,6 +4,7 @@ const Run = preload("res://run.gd")
 const TILE_TEXTURE = preload("res://assets/tiles_sewers.png")
 const HERO_TEXTURE = preload("res://assets/warrior.png")
 const RAT_TEXTURE = preload("res://assets/rat.png")
+const SNAKE_TEXTURE = preload("res://assets/snake.png")
 const ITEM_TEXTURE = preload("res://assets/items.png")
 const CELL_SIZE := 32.0
 const MAP_TOP := 88.0
@@ -115,9 +116,13 @@ func _draw() -> void:
 			if run.is_visible(cell):
 				if run.potions.has(cell):
 					_draw_sprite(ITEM_TEXTURE, Rect2(0, 22 * 16, 16, 16), destination)
-				for rat in run.rats:
-					if rat["pos"] == cell:
-						_draw_sprite(RAT_TEXTURE, Rect2(0, 0, 16, 15), destination)
+				for mob in run.mobs:
+					if mob["pos"] == cell:
+						if mob["kind"] == "snake":
+							_draw_sprite(SNAKE_TEXTURE, Rect2(0, 0, 12, 11),
+								Rect2(destination.position + Vector2(4, 6), Vector2(24, 22)))
+						else:
+							_draw_sprite(RAT_TEXTURE, Rect2(0, 0, 16, 15), destination)
 						break
 			if cell == run.hero:
 				var hero_destination := Rect2(

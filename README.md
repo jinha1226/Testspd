@@ -26,3 +26,7 @@ godot --headless --path . --script res://tests/smoke.gd
 첫 테스트는 50개 시드에서 시작 지점에서 계단까지 연결되는지와 시야·턴·물약·하강을 확인합니다. 출처와 라이선스는 [ATTRIBUTION.md](ATTRIBUTION.md)에 정리했습니다. 이 폴더의 원본 스프라이트는 코드로 다시 그린 에셋이 아닙니다.
 
 GitHub Actions의 [Godot tests](.github/workflows/godot-tests.yml)는 `main` 푸시와 풀 리퀘스트마다 Godot 4.6.2 임포트, 위 스모크 테스트, 메인 씬 로딩을 실행합니다. Actions 탭에서 수동 실행도 할 수 있습니다.
+
+## 웹에서 실행
+
+`main`에 푸시하면 [Build and deploy web](.github/workflows/deploy-pages.yml)이 웹 빌드를 만들고 GitHub Pages에 배포합니다. 배포가 성공하면 [웹 실행 페이지](https://jinha1226.github.io/Testspd/)에서 열 수 있습니다. 최초 배포 전에 저장소의 **Settings → Pages → Build and deployment → Source**를 **GitHub Actions**로 선택해야 할 수 있습니다.

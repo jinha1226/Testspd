@@ -48,6 +48,13 @@ jobs:
           "$GODOT_BIN" --headless --path . --script res://tests/smoke.gd 2>&1 | tee smoke.log
           grep -Fq 'SPD port smoke passed' smoke.log
 
+      - name: Verify Korean UI font
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/font.gd 2>&1 | tee font.log
+          grep -Fq 'Korean UI font passed' font.log
+
       - name: Boot main scene
         shell: bash
         run: |

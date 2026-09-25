@@ -3,6 +3,7 @@ extends RefCounted
 
 const ShadowCaster = preload("res://spd_shadowcaster.gd")
 const SpdCombat = preload("res://spd_combat.gd")
+const SpdPatch = preload("res://spd_patch.gd")
 
 const WIDTH := 36
 const HEIGHT := 36
@@ -12,6 +13,11 @@ const CLOSED_DOOR := 2
 const OPEN_DOOR := 3
 const ENTRANCE := 4
 const EXIT := 5
+const WATER := 6
+const GRASS := 7
+const HIGH_GRASS := 8
+const FLOOR_DECO := 9
+const WALL_DECO := 10
 const SIGHT_RADIUS := 8
 const DIRS8 := [
 	Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
@@ -93,6 +99,7 @@ func _build_floor() -> void:
 		rooms.append_array([first, last])
 
 	_mark_doors()
+	_paint_terrain()
 	hero = _room_center(rooms.front())
 	stairs = _room_center(rooms.back())
 	tiles[_index(hero)] = ENTRANCE
@@ -109,7 +116,7 @@ func _build_floor() -> void:
 
 func _spawn_mobs() -> void:
 	# RegularLevel.createMobs presets eight enemies on depth 1. MobSpawner's
-	# depth-1 standard rotation is three rats and one snake, repeated as needed.
+	# sewer rotations are selected by depth and reshuffled when exhausted.
 	# Rare alternates and exact standard-room weighting remain to be ported.
 	var candidates: Array[Vector2i] = []
 	for room_index in range(1, rooms.size()):
@@ -117,11 +124,12 @@ func _spawn_mobs() -> void:
 		for y in range(room.position.y, room.end.y):
 			for x in range(room.position.x, room.end.x):
 				var cell := Vector2i(x, y)
-				if tile_at(cell) == FLOOR and cell != stairs and not is_visible(cell) \
+				if not is_wall_tile(tile_at(cell)) and tile_at(cell) != CLOSED_DOOR \
+						and cell != stairs and not is_visible(cell) \
 						and maxi(absi(cell.x - hero.x), absi(cell.y - hero.y)) > 8:
 					candidates.append(cell)
 	var count := 8 if depth == 1 else 3 + depth % 5 + rng.randi_range(0, 2)
-	var rotation := ["rat", "rat", "rat", "snake"]
+	var rotation := _mob_rotation()
 	var rotation_index := 0
 	while mobs.size() < count and not candidates.is_empty():
 		if rotation_index == 0:
@@ -137,7 +145,63 @@ func _spawn_mobs() -> void:
 			var kind: String = rotation[rotation_index]
 			mobs.append({"kind": kind, "pos": cell, "hp": SpdCombat.mob_hp(kind),
 				"state": "sleeping", "enemy_seen": false, "target": cell})
+			_trample(cell)
 			rotation_index = (rotation_index + 1) % rotation.size()
+
+
+func _mob_rotation() -> Array[String]:
+	match depth:
+		1:
+			return ["rat", "rat", "rat", "snake"]
+		2:
+			return ["rat", "rat", "snake", "gnoll", "gnoll"]
+		3:
+			return ["rat", "snake", "gnoll", "gnoll", "gnoll", "swarm", "crab"]
+		_:
+			return ["gnoll", "swarm", "crab", "crab", "slime", "slime"]
+
+
+func _paint_terrain() -> void:
+	# SewerLevel.painter() uses 30% water with five smoothing passes and
+	# 20% grass with four passes. Current rooms are still provisional.
+	var water: PackedByteArray = SpdPatch.generate(rng, WIDTH, HEIGHT, 0.30, 5, true)
+	var grass: PackedByteArray = SpdPatch.generate(rng, WIDTH, HEIGHT, 0.20, 4, true)
+	for room in rooms:
+		for y in range(room.position.y, room.end.y):
+			for x in range(room.position.x, room.end.x):
+				var index := x + y * WIDTH
+				if tiles[index] == FLOOR and water[index] != 0:
+					tiles[index] = WATER
+	for room in rooms:
+		for y in range(room.position.y, room.end.y):
+			for x in range(room.position.x, room.end.x):
+				var index := x + y * WIDTH
+				if tiles[index] != FLOOR or grass[index] == 0:
+					continue
+				var count := 1
+				for direction in DIRS8:
+					var neighbor: Vector2i = Vector2i(x, y) + direction
+					if _inside(neighbor) and grass[_index(neighbor)] != 0:
+						count += 1
+				tiles[index] = HIGH_GRASS if rng.randf() < count / 12.0 else GRASS
+	# SewerPainter.decorate(): decorate walls above water and floor near walls.
+	for y in range(1, HEIGHT - 1):
+		for x in range(1, WIDTH - 1):
+			var index := x + y * WIDTH
+			if tiles[index] == WALL and tiles[index - WIDTH] == WALL \
+					and tiles[index + WIDTH] == WATER and rng.randi_range(0, 1) == 0:
+				tiles[index] = WALL_DECO
+	for y in range(1, HEIGHT - 1):
+		for x in range(1, WIDTH - 1):
+			var index := x + y * WIDTH
+			if tiles[index] != FLOOR:
+				continue
+			var count := 0
+			for direction in [Vector2i.UP, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.LEFT]:
+				if tile_at(Vector2i(x, y) + direction) == WALL:
+					count += 1
+			if rng.randi_range(0, 15) < count * count:
+				tiles[index] = FLOOR_DECO
 
 
 func _carve_room(room: Rect2i) -> void:
@@ -199,6 +263,15 @@ func tile_at(p: Vector2i) -> int:
 	return tiles[_index(p)] if _inside(p) else WALL
 
 
+static func is_wall_tile(tile: int) -> bool:
+	return tile == WALL or tile == WALL_DECO
+
+
+func _trample(p: Vector2i) -> void:
+	if tile_at(p) == HIGH_GRASS:
+		tiles[_index(p)] = GRASS
+
+
 func is_visible(p: Vector2i) -> bool:
 	return _inside(p) and visible[_index(p)] != 0
 
@@ -218,7 +291,8 @@ func _blocking_map() -> PackedByteArray:
 	var blocking := PackedByteArray()
 	blocking.resize(WIDTH * HEIGHT)
 	for index in range(tiles.size()):
-		blocking[index] = 1 if tiles[index] == WALL or tiles[index] == CLOSED_DOOR else 0
+		blocking[index] = 1 if is_wall_tile(tiles[index]) \
+			or tiles[index] == CLOSED_DOOR or tiles[index] == HIGH_GRASS else 0
 	return blocking
 
 
@@ -235,18 +309,20 @@ func step(direction: Vector2i) -> bool:
 	if absi(direction.x) > 1 or absi(direction.y) > 1:
 		return false
 	var target := hero + direction
-	if not _inside(target) or tile_at(target) == WALL:
+	if not _inside(target) or is_wall_tile(tile_at(target)):
 		message = "벽이 가로막고 있습니다."
 		return false
 	var mob_index := _mob_index_at(target)
 	if mob_index >= 0:
 		var mob: Dictionary = mobs[mob_index]
 		var kind: String = mob["kind"]
-		var name := "뱀" if kind == "snake" else "쥐"
+		var name := _mob_name(kind)
 		var strike: Dictionary = SpdCombat.warrior_attacks_mob(rng, kind, not mob["enemy_seen"])
 		if not strike["hit"]:
 			message = "공격이 빗나갔습니다."
 		else:
+			_split_swarm(mob_index, int(strike["damage"]))
+			mob = mobs[mob_index]
 			mob["hp"] = int(mob["hp"]) - int(strike["damage"])
 			if int(mob["hp"]) <= 0:
 				mobs.remove_at(mob_index)
@@ -262,6 +338,7 @@ func step(direction: Vector2i) -> bool:
 		message = "문을 열었습니다."
 	else:
 		hero = target
+		_trample(hero)
 		message = "이동했습니다."
 		if potions.has(hero):
 			potions.erase(hero)
@@ -314,53 +391,93 @@ func _heal_tick() -> void:
 
 func _enemy_turn() -> void:
 	var blocking := _blocking_map()
-	for i in range(mobs.size()):
-		var mob: Dictionary = mobs[i]
-		var pos: Vector2i = mob["pos"]
-		var distance := maxi(absi(pos.x - hero.x), absi(pos.y - hero.y))
-		var mob_fov: PackedByteArray = ShadowCaster.cast_shadow(pos, WIDTH, HEIGHT, blocking, SIGHT_RADIUS)
-		var sees_hero := mob_fov[_index(hero)] != 0
-		if mob["state"] == "sleeping":
-			# Mob.Sleeping detects an unstealthed hero with chance 1 / distance.
-			if sees_hero and rng.randf() < 1.0 / maxf(1.0, float(distance)):
-				mob["state"] = "hunting"
-				mob["enemy_seen"] = true
-				mob["target"] = hero
-				mobs[i] = mob
-			continue
-		mob["enemy_seen"] = sees_hero
-		if sees_hero:
+	var initial_count := mobs.size()
+	for i in range(initial_count):
+		# The source Actor scheduler grants crabs two actions per hero turn at base speed 2.
+		var actions := 2 if mobs[i]["kind"] == "crab" else 1
+		for action in range(actions):
+			_mob_act(i, blocking)
+
+
+func _mob_act(i: int, blocking: PackedByteArray) -> void:
+	var mob: Dictionary = mobs[i]
+	var pos: Vector2i = mob["pos"]
+	var distance := maxi(absi(pos.x - hero.x), absi(pos.y - hero.y))
+	var mob_fov: PackedByteArray = ShadowCaster.cast_shadow(pos, WIDTH, HEIGHT, blocking, SIGHT_RADIUS)
+	var sees_hero := mob_fov[_index(hero)] != 0
+	if mob["state"] == "sleeping":
+		# Mob.Sleeping detects an unstealthed hero with chance 1 / distance.
+		if sees_hero and rng.randf() < 1.0 / maxf(1.0, float(distance)):
 			mob["state"] = "hunting"
+			mob["enemy_seen"] = true
 			mob["target"] = hero
-		if distance <= 1 and sees_hero:
-			var strike: Dictionary = SpdCombat.mob_attacks_warrior(rng, mob["kind"])
-			var name := "뱀" if mob["kind"] == "snake" else "쥐"
-			if strike["hit"]:
-				hp = maxi(0, hp - int(strike["damage"]))
-				message += " %s에게 %d 피해를 받았습니다." % [name, strike["damage"]]
-			else:
-				message += " %s의 공격이 빗나갔습니다." % name
 			mobs[i] = mob
-			continue
-		var goal: Vector2i = mob["target"]
-		if pos == goal:
-			mob["state"] = "wandering"
-			mobs[i] = mob
-			continue
-		var best := pos
-		var best_distance := pos.distance_squared_to(goal)
-		for direction in DIRS8:
-			var next: Vector2i = pos + direction
-			if tile_at(next) == WALL or tile_at(next) == CLOSED_DOOR or next == hero:
-				continue
-			if _mob_index_at(next) >= 0:
-				continue
-			var next_distance := next.distance_squared_to(goal)
-			if next_distance < best_distance:
-				best = next
-				best_distance = next_distance
-		mob["pos"] = best
+		return
+	mob["enemy_seen"] = sees_hero
+	if sees_hero:
+		mob["state"] = "hunting"
+		mob["target"] = hero
+	if distance <= 1 and sees_hero:
+		var strike: Dictionary = SpdCombat.mob_attacks_warrior(rng, mob["kind"])
+		var name := _mob_name(mob["kind"])
+		if strike["hit"]:
+			hp = maxi(0, hp - int(strike["damage"]))
+			message += " %s에게 %d 피해를 받았습니다." % [name, strike["damage"]]
+		else:
+			message += " %s의 공격이 빗나갔습니다." % name
 		mobs[i] = mob
+		return
+	var goal: Vector2i = mob["target"]
+	if pos == goal:
+		mob["state"] = "wandering"
+		mobs[i] = mob
+		return
+	var best := pos
+	var best_distance := pos.distance_squared_to(goal)
+	for direction in DIRS8:
+		var next: Vector2i = pos + direction
+		if is_wall_tile(tile_at(next)) or tile_at(next) == CLOSED_DOOR or next == hero:
+			continue
+		if _mob_index_at(next) >= 0:
+			continue
+		var next_distance := next.distance_squared_to(goal)
+		if next_distance < best_distance:
+			best = next
+			best_distance = next_distance
+	mob["pos"] = best
+	_trample(best)
+	mobs[i] = mob
+
+
+func _split_swarm(index: int, damage: int) -> void:
+	var mob: Dictionary = mobs[index]
+	if mob["kind"] != "swarm" or int(mob["hp"]) < damage + 2:
+		return
+	var candidates: Array[Vector2i] = []
+	var origin: Vector2i = mob["pos"]
+	for direction in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]:
+		var cell: Vector2i = origin + direction
+		if not is_wall_tile(tile_at(cell)) and tile_at(cell) != CLOSED_DOOR \
+				and cell != hero and _mob_index_at(cell) < 0:
+			candidates.append(cell)
+	if candidates.is_empty():
+		return
+	var clone_hp := int((int(mob["hp"]) - damage) / 2)
+	mob["hp"] = int(mob["hp"]) - clone_hp
+	mobs[index] = mob
+	var cell: Vector2i = candidates[rng.randi_range(0, candidates.size() - 1)]
+	mobs.append({"kind": "swarm", "pos": cell, "hp": clone_hp,
+		"state": "hunting", "enemy_seen": true, "target": hero})
+
+
+static func _mob_name(kind: String) -> String:
+	match kind:
+		"snake": return "뱀"
+		"gnoll": return "놀"
+		"swarm": return "파리떼"
+		"crab": return "게"
+		"slime": return "슬라임"
+		_: return "쥐"
 
 
 func has_visible_enemy() -> bool:
@@ -384,7 +501,7 @@ func path_to(target: Vector2i) -> Array[Vector2i]:
 			break
 		for direction in DIRS8:
 			var next: Vector2i = p + direction
-			if previous.has(next) or not is_explored(next) or tile_at(next) == WALL:
+			if previous.has(next) or not is_explored(next) or is_wall_tile(tile_at(next)):
 				continue
 			previous[next] = p
 			queue.append(next)

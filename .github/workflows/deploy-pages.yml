@@ -56,6 +56,8 @@ jobs:
           ! grep -Eq 'SCRIPT ERROR|Parse Error|Failed to load script|^ERROR:' "$RUNNER_TEMP/import.log"
           "$GODOT_BIN" --headless --path . --script res://tests/smoke.gd 2>&1 | tee "$RUNNER_TEMP/smoke.log"
           grep -Fq 'SPD port smoke passed' "$RUNNER_TEMP/smoke.log"
+          "$GODOT_BIN" --headless --path . --script res://tests/font.gd 2>&1 | tee "$RUNNER_TEMP/font.log"
+          grep -Fq 'Korean UI font passed' "$RUNNER_TEMP/font.log"
 
       - name: Export web build
         shell: bash
@@ -67,7 +69,7 @@ jobs:
           test -s build/web/index.html
           test -s build/web/index.pck
           test -s build/web/index.wasm
-          cp LICENSE.txt ATTRIBUTION.md PORTING.md build/web/
+          cp LICENSE.txt ATTRIBUTION.md PORTING.md assets/fonts/Galmuri11.LICENSE.txt build/web/
           touch build/web/.nojekyll
 
       - uses: actions/configure-pages@v5

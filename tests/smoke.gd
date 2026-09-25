@@ -3,12 +3,20 @@ extends SceneTree
 const Run = preload("res://run.gd")
 const ShadowCaster = preload("res://spd_shadowcaster.gd")
 const SpdCombat = preload("res://spd_combat.gd")
+const SpdPatch = preload("res://spd_patch.gd")
 
 
 func _initialize() -> void:
 	var run = Run.new()
+	var water_cells := 0
+	var grass_cells := 0
 	for seed_value in range(1, 51):
 		run.start(seed_value)
+		for terrain in run.tiles:
+			if terrain == Run.WATER:
+				water_cells += 1
+			elif terrain == Run.GRASS or terrain == Run.HIGH_GRASS:
+				grass_cells += 1
 		if run.rooms.size() < 2 or not _reachable(run):
 			push_error("unreachable exit for seed %d" % seed_value)
 			quit(1)
@@ -36,6 +44,20 @@ func _initialize() -> void:
 			push_error("wrong depth-1 mob rotation for seed %d" % seed_value)
 			quit(1)
 			return
+	if water_cells == 0 or grass_cells == 0:
+		push_error("sewer water and grass painter produced no terrain")
+		quit(1)
+		return
+	var patch_rng := RandomNumberGenerator.new()
+	patch_rng.seed = 44
+	var lake: PackedByteArray = SpdPatch.generate(patch_rng, 36, 36, 0.30, 5, true)
+	var filled := 0
+	for cell in lake:
+		filled += int(cell)
+	if filled != roundi(36 * 36 * 0.30):
+		push_error("original Patch force-fill rate was not preserved")
+		quit(1)
+		return
 
 	var blocking := PackedByteArray()
 	blocking.resize(11 * 11)
@@ -62,12 +84,38 @@ func _initialize() -> void:
 		push_error("snake's original evasion is not reflected in combat")
 		quit(1)
 		return
+	for kind in ["gnoll", "swarm", "crab", "slime"]:
+		if SpdCombat.mob_hp(kind) != SpdCombat.MOB_STATS[kind]["hp"]:
+			push_error("sewer mob HP does not match the Java source: %s" % kind)
+			quit(1)
+			return
+	for trial in range(100):
+		var slime_hit: Dictionary = SpdCombat.warrior_attacks_mob(combat_rng, "slime", true)
+		if int(slime_hit["damage"]) > 6:
+			push_error("slime damage resistance was not applied")
+			quit(1)
+			return
+	run.depth = 2
+	run._build_floor()
+	var has_gnoll := false
+	for mob in run.mobs:
+		if mob["kind"] == "gnoll":
+			has_gnoll = true
+		if not ["rat", "snake", "gnoll"].has(mob["kind"]):
+			push_error("unexpected depth-2 enemy")
+			quit(1)
+			return
+	if not has_gnoll:
+		push_error("depth-2 gnolls were not spawned")
+		quit(1)
+		return
 
 	run.start(42)
 	run.mobs.clear()
 	var adjacent := Vector2i.ZERO
 	for direction in Run.DIRS8:
-		if run.tile_at(run.hero + direction) == Run.FLOOR:
+		if not Run.is_wall_tile(run.tile_at(run.hero + direction)) \
+				and run.tile_at(run.hero + direction) != Run.CLOSED_DOOR:
 			adjacent = direction
 			break
 	if adjacent == Vector2i.ZERO:
@@ -116,7 +164,8 @@ func _initialize() -> void:
 	var moved_down := false
 	for direction in Run.DIRS8:
 		var stairs_neighbor: Vector2i = run.stairs + direction
-		if run.tile_at(stairs_neighbor) != Run.WALL and run.tile_at(stairs_neighbor) != Run.CLOSED_DOOR:
+		if not Run.is_wall_tile(run.tile_at(stairs_neighbor)) \
+				and run.tile_at(stairs_neighbor) != Run.CLOSED_DOOR:
 			run.hero = stairs_neighbor
 			run.step(-direction)
 			moved_down = run.depth == 2
@@ -125,7 +174,7 @@ func _initialize() -> void:
 		push_error("descending stairs failed")
 		quit(1)
 		return
-	print("SPD port smoke passed: 50 connected seeds, FOV, floor-1 mobs, combat, healing, descent")
+	print("SPD port smoke passed: 50 connected seeds, sewer paint, FOV, sewer mobs, combat, healing, descent")
 	quit()
 
 
@@ -140,7 +189,7 @@ func _reachable(run) -> bool:
 			return true
 		for direction in Run.DIRS8:
 			var next: Vector2i = p + direction
-			if seen.has(next) or run.tile_at(next) == Run.WALL:
+			if seen.has(next) or Run.is_wall_tile(run.tile_at(next)):
 				continue
 			seen[next] = true
 			queue.append(next)

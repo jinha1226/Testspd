@@ -19,6 +19,14 @@ const RAT_DR_MAX := 1
 const SNAKE_HP := 4
 const SNAKE_ATTACK_SKILL := 10
 const SNAKE_DEFENSE_SKILL := 25
+const MOB_STATS := {
+	"rat": {"hp": 8, "attack": 8, "defense": 2, "damage_min": 1, "damage_max": 4, "dr_max": 1},
+	"snake": {"hp": 4, "attack": 10, "defense": 25, "damage_min": 1, "damage_max": 4, "dr_max": 0},
+	"gnoll": {"hp": 12, "attack": 10, "defense": 4, "damage_min": 1, "damage_max": 6, "dr_max": 2},
+	"swarm": {"hp": 50, "attack": 10, "defense": 5, "damage_min": 1, "damage_max": 4, "dr_max": 0},
+	"crab": {"hp": 15, "attack": 12, "defense": 5, "damage_min": 1, "damage_max": 7, "dr_max": 4},
+	"slime": {"hp": 20, "attack": 12, "defense": 5, "damage_min": 2, "damage_max": 5, "dr_max": 0},
+}
 
 
 static func normal_int_range(rng: RandomNumberGenerator, minimum: int, maximum: int) -> int:
@@ -41,18 +49,23 @@ static func attack(rng: RandomNumberGenerator, attack_skill: int, defense_skill:
 
 
 static func mob_hp(kind: String) -> int:
-	return SNAKE_HP if kind == "snake" else RAT_HP
+	return int(MOB_STATS.get(kind, MOB_STATS["rat"])["hp"])
 
 
 static func warrior_attacks_mob(rng: RandomNumberGenerator, kind: String, surprised: bool) -> Dictionary:
 	# Mob.defenseSkill returns zero when surprised by the hero.
-	var defense := 0 if surprised else (SNAKE_DEFENSE_SKILL if kind == "snake" else RAT_DEFENSE_SKILL)
-	var dr_max := 0 if kind == "snake" else RAT_DR_MAX
-	return attack(rng, HERO_ATTACK_SKILL, defense,
-		WORN_SHORTSWORD_MIN, WORN_SHORTSWORD_MAX, RAT_DR_MIN, dr_max)
+	var stats: Dictionary = MOB_STATS.get(kind, MOB_STATS["rat"])
+	var defense := 0 if surprised else int(stats["defense"])
+	var strike := attack(rng, HERO_ATTACK_SKILL, defense,
+		WORN_SHORTSWORD_MIN, WORN_SHORTSWORD_MAX, 0, int(stats["dr_max"]))
+	if kind == "slime" and int(strike["damage"]) >= 5:
+		# Slime.damage caps large hits on a diminishing curve.
+		var damage := int(strike["damage"])
+		strike["damage"] = int(4.0 + (sqrt(8.0 * (damage - 4) + 1.0) - 1.0) / 2.0)
+	return strike
 
 
 static func mob_attacks_warrior(rng: RandomNumberGenerator, kind: String) -> Dictionary:
-	var attack_skill := SNAKE_ATTACK_SKILL if kind == "snake" else RAT_ATTACK_SKILL
-	return attack(rng, attack_skill, HERO_DEFENSE_SKILL,
-		RAT_DAMAGE_MIN, RAT_DAMAGE_MAX, CLOTH_ARMOR_DR_MIN, CLOTH_ARMOR_DR_MAX)
+	var stats: Dictionary = MOB_STATS.get(kind, MOB_STATS["rat"])
+	return attack(rng, int(stats["attack"]), HERO_DEFENSE_SKILL,
+		int(stats["damage_min"]), int(stats["damage_max"]), CLOTH_ARMOR_DR_MIN, CLOTH_ARMOR_DR_MAX)

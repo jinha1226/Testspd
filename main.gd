@@ -5,7 +5,12 @@ const TILE_TEXTURE = preload("res://assets/tiles_sewers.png")
 const HERO_TEXTURE = preload("res://assets/warrior.png")
 const RAT_TEXTURE = preload("res://assets/rat.png")
 const SNAKE_TEXTURE = preload("res://assets/snake.png")
+const GNOLL_TEXTURE = preload("res://assets/gnoll.png")
+const SWARM_TEXTURE = preload("res://assets/swarm.png")
+const CRAB_TEXTURE = preload("res://assets/crab.png")
+const SLIME_TEXTURE = preload("res://assets/slime.png")
 const ITEM_TEXTURE = preload("res://assets/items.png")
+const UI_FONT = preload("res://assets/fonts/Galmuri11.ttf")
 const CELL_SIZE := 32.0
 const MAP_TOP := 88.0
 const MAP_BOTTOM_MARGIN := 166.0
@@ -22,6 +27,9 @@ var auto_elapsed := 0.0
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var ui_theme := Theme.new()
+	ui_theme.default_font = UI_FONT
+	theme = ui_theme
 	run.start()
 	_create_ui()
 	_layout_ui()
@@ -106,7 +114,7 @@ func _draw() -> void:
 			)
 			if not run.is_explored(cell):
 				continue
-			var tile_id := _visual_tile(run.tile_at(cell))
+			var tile_id := _visual_tile(cell)
 			var source := Rect2(
 				Vector2((tile_id % 16) * 16, int(tile_id / 16) * 16),
 				Vector2(16, 16)
@@ -118,11 +126,7 @@ func _draw() -> void:
 					_draw_sprite(ITEM_TEXTURE, Rect2(0, 22 * 16, 16, 16), destination)
 				for mob in run.mobs:
 					if mob["pos"] == cell:
-						if mob["kind"] == "snake":
-							_draw_sprite(SNAKE_TEXTURE, Rect2(0, 0, 12, 11),
-								Rect2(destination.position + Vector2(4, 6), Vector2(24, 22)))
-						else:
-							_draw_sprite(RAT_TEXTURE, Rect2(0, 0, 16, 15), destination)
+						_draw_mob(mob["kind"], destination)
 						break
 			if cell == run.hero:
 				var hero_destination := Rect2(
@@ -139,10 +143,46 @@ func _draw() -> void:
 	)
 
 
-func _visual_tile(tile: int) -> int:
+func _draw_mob(kind: String, cell: Rect2) -> void:
+	match kind:
+		"snake":
+			_draw_sprite(SNAKE_TEXTURE, Rect2(0, 0, 12, 11),
+				Rect2(cell.position + Vector2(4, 6), Vector2(24, 22)))
+		"gnoll":
+			_draw_sprite(GNOLL_TEXTURE, Rect2(0, 0, 12, 15),
+				Rect2(cell.position + Vector2(4, 2), Vector2(24, 30)))
+		"swarm":
+			_draw_sprite(SWARM_TEXTURE, Rect2(0, 0, 16, 16), cell)
+		"crab":
+			_draw_sprite(CRAB_TEXTURE, Rect2(0, 0, 16, 16), cell)
+		"slime":
+			_draw_sprite(SLIME_TEXTURE, Rect2(0, 0, 14, 12),
+				Rect2(cell.position + Vector2(2, 4), Vector2(28, 24)))
+		_:
+			_draw_sprite(RAT_TEXTURE, Rect2(0, 0, 16, 15), cell)
+
+
+func _visual_tile(cell: Vector2i) -> int:
+	var tile := run.tile_at(cell)
 	match tile:
 		Run.FLOOR:
 			return 0
+		Run.FLOOR_DECO:
+			return 1
+		Run.GRASS:
+			return 2
+		Run.HIGH_GRASS:
+			return 66
+		Run.WATER:
+			# DungeonTileSheet.stitchWaterTile uses bits top/right/bottom/left.
+			var mask := 0
+			var directions := [Vector2i.UP, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.LEFT]
+			for index in range(4):
+				var direction: Vector2i = directions[index]
+				var neighbor := run.tile_at(cell + direction)
+				if neighbor != Run.WATER and not Run.is_wall_tile(neighbor):
+					mask += 1 << index
+			return 32 + mask
 		Run.CLOSED_DOOR:
 			return 56
 		Run.OPEN_DOOR:
@@ -151,6 +191,8 @@ func _visual_tile(tile: int) -> int:
 			return 16
 		Run.EXIT:
 			return 17
+		Run.WALL_DECO:
+			return 49
 		_:
 			return 48
 

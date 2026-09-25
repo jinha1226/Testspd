@@ -14,6 +14,8 @@ godot --path .
 
 현재 포함: 연결된 방과 복도, 문, 시야와 발견 지형, 물·풀 군집 지형, 플레이어와 하수도 1~4층의 쥐·뱀·놀·파리떼·게·슬라임, 근접 공격, 체력과 회복 물약, 계단 하강, 원본 SPD 하수도 타일·스프라이트 시트. 한글 UI에는 Galmuri11 폰트를 포함했습니다. 5층 보스와 6층 이후 지역·아이템·직업 시스템은 아직 이식하지 않았습니다. 원본 Java 코드와 Godot 구현의 대응 관계는 [PORTING.md](PORTING.md)에 기록했습니다.
 
+원본 Java 난수 시퀀스와 시간·우선순위 기반 턴 순서, 장애물을 돌아가는 경로 탐색을 적용했습니다. 게임은 1번 슬롯에 매 행동 자동 저장되며 다음 실행 때 이어집니다. 저장 상태가 손상되면 자동 덮어쓰기를 멈추고 새 게임을 눌러 새로 저장할 수 있습니다. 저장 형식은 Godot판 전용이며, 나머지 슬롯의 선택 화면과 세이브 내보내기·가져오기 UI는 아직 없습니다.
+
 아직 없는 것: 원본 SPD의 방 배치·특수 방·페인터·전리품을 포함한 층 생성기, 전체 직업·장비·주문·함정·굶주림·보스·저장, 애니메이션과 완성형 UI. 현재 구현은 **원본 Java 규칙 일부를 실제로 옮긴 이식 진행본**이며 전체 게임의 1:1 포트는 아닙니다.
 
 ## 검증
@@ -21,6 +23,9 @@ godot --path .
 ```bash
 godot --headless --path . --editor --import --quit
 godot --headless --path . --script res://tests/smoke.gd
+godot --headless --path . --script res://tests/foundation.gd
+godot --headless --path . --script res://tests/pathfinder.gd
+godot --headless --path . --script res://tests/save_ui.gd
 ```
 
 첫 테스트는 50개 시드에서 시작 지점에서 계단까지 연결되는지와 시야·하수도 적 구성·명중·턴·물약·하강을 확인합니다. 별도 폰트 테스트는 한글 글리프와 UI 폰트 적용을 확인합니다. 출처와 라이선스는 [ATTRIBUTION.md](ATTRIBUTION.md)에 정리했습니다. 이 폴더의 원본 스프라이트는 코드로 다시 그린 에셋이 아닙니다.

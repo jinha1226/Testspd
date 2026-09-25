@@ -4,6 +4,9 @@ extends RefCounted
 const ShadowCaster = preload("res://spd_shadowcaster.gd")
 const SpdCombat = preload("res://spd_combat.gd")
 const SpdPatch = preload("res://spd_patch.gd")
+const SpdRandom = preload("res://spd_random.gd")
+const SpdActorClock = preload("res://spd_actor_clock.gd")
+const SpdPathFinder = preload("res://spd_pathfinder.gd")
 
 const WIDTH := 36
 const HEIGHT := 36
@@ -40,11 +43,13 @@ var potion_count := 0
 var healing_left := 0
 var turns := 0
 var message := ""
-var rng := RandomNumberGenerator.new()
+var rng = SpdRandom.new()
+var clock = SpdActorClock.new()
+var next_actor_id := 1
 
 
 func start(seed_value: int = 0) -> void:
-	rng.seed = seed_value if seed_value != 0 else Time.get_ticks_usec()
+	rng.reset(seed_value if seed_value != 0 else Time.get_ticks_usec())
 	depth = 1
 	hp = max_hp
 	potion_count = 0
@@ -55,6 +60,9 @@ func start(seed_value: int = 0) -> void:
 
 
 func _build_floor() -> void:
+	clock.clear()
+	clock.add(0, SpdActorClock.HERO_PRIORITY)
+	next_actor_id = 1
 	tiles.resize(WIDTH * HEIGHT)
 	tiles.fill(WALL)
 	explored.resize(WIDTH * HEIGHT)
@@ -143,8 +151,11 @@ func _spawn_mobs() -> void:
 		candidates.remove_at(index)
 		if _mob_index_at(cell) < 0:
 			var kind: String = rotation[rotation_index]
-			mobs.append({"kind": kind, "pos": cell, "hp": SpdCombat.mob_hp(kind),
+			var actor_id := next_actor_id
+			next_actor_id += 1
+			mobs.append({"id": actor_id, "kind": kind, "pos": cell, "hp": SpdCombat.mob_hp(kind),
 				"state": "sleeping", "enemy_seen": false, "target": cell})
+			clock.add(actor_id, SpdActorClock.MOB_PRIORITY)
 			_trample(cell)
 			rotation_index = (rotation_index + 1) % rotation.size()
 
@@ -325,6 +336,8 @@ func step(direction: Vector2i) -> bool:
 			mob = mobs[mob_index]
 			mob["hp"] = int(mob["hp"]) - int(strike["damage"])
 			if int(mob["hp"]) <= 0:
+				if mob.has("id"):
+					clock.remove(int(mob["id"]))
 				mobs.remove_at(mob_index)
 				message = "%s을(를) 쓰러뜨렸습니다." % name
 			else:
@@ -374,8 +387,10 @@ func drink_potion() -> bool:
 
 func _advance_turn() -> void:
 	turns += 1
-	_heal_tick()
-	_enemy_turn()
+	clock.spend(0, 1.0)
+	_run_actors_until_hero()
+	if hp > 0:
+		_heal_tick()
 	_reveal()
 	if hp <= 0:
 		message = "%d층에서 쓰러졌습니다. 새 게임을 눌러 재시작하세요." % depth
@@ -389,14 +404,30 @@ func _heal_tick() -> void:
 	healing_left -= amount
 
 
-func _enemy_turn() -> void:
-	var blocking := _blocking_map()
-	var initial_count := mobs.size()
-	for i in range(initial_count):
-		# The source Actor scheduler grants crabs two actions per hero turn at base speed 2.
-		var actions := 2 if mobs[i]["kind"] == "crab" else 1
-		for action in range(actions):
-			_mob_act(i, blocking)
+func _run_actors_until_hero() -> void:
+	# Actor.process chooses the lowest time, then the highest priority.
+	# A bound prevents a broken actor from freezing the browser.
+	for event in range(4096):
+		var actor_id := clock.next_actor()
+		if actor_id == 0 or actor_id < 0 or hp <= 0:
+			return
+		var index := _mob_index_by_id(actor_id)
+		if index < 0:
+			clock.remove(actor_id)
+			continue
+		_mob_act(index, _blocking_map())
+		var speed := 2.0 if mobs[index]["kind"] == "crab" else 1.0
+		clock.spend(actor_id, 1.0 / speed)
+		if hp <= 0:
+			return
+	push_error("actor clock exceeded 4096 actions before the hero")
+
+
+func _mob_index_by_id(actor_id: int) -> int:
+	for index in range(mobs.size()):
+		if int(mobs[index].get("id", -1)) == actor_id:
+			return index
+	return -1
 
 
 func _mob_act(i: int, blocking: PackedByteArray) -> void:
@@ -432,18 +463,14 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 		mob["state"] = "wandering"
 		mobs[i] = mob
 		return
-	var best := pos
-	var best_distance := pos.distance_squared_to(goal)
-	for direction in DIRS8:
-		var next: Vector2i = pos + direction
-		if is_wall_tile(tile_at(next)) or tile_at(next) == CLOSED_DOOR or next == hero:
-			continue
-		if _mob_index_at(next) >= 0:
-			continue
-		var next_distance := next.distance_squared_to(goal)
-		if next_distance < best_distance:
-			best = next
-			best_distance = next_distance
+	var passable := _path_passability(false)
+	for other in mobs:
+		if other["pos"] != pos:
+			passable[_index(other["pos"])] = 0
+	passable[_index(hero)] = 0
+	var best: Vector2i = SpdPathFinder.get_step(WIDTH, HEIGHT, pos, goal, passable)
+	if best == hero or _mob_index_at(best) >= 0:
+		best = pos
 	mob["pos"] = best
 	_trample(best)
 	mobs[i] = mob
@@ -466,8 +493,11 @@ func _split_swarm(index: int, damage: int) -> void:
 	mob["hp"] = int(mob["hp"]) - clone_hp
 	mobs[index] = mob
 	var cell: Vector2i = candidates[rng.randi_range(0, candidates.size() - 1)]
-	mobs.append({"kind": "swarm", "pos": cell, "hp": clone_hp,
+	var actor_id := next_actor_id
+	next_actor_id += 1
+	mobs.append({"id": actor_id, "kind": "swarm", "pos": cell, "hp": clone_hp,
 		"state": "hunting", "enemy_seen": true, "target": hero})
+	clock.add(actor_id, SpdActorClock.MOB_PRIORITY, 1.0)
 
 
 static func _mob_name(kind: String) -> String:
@@ -488,27 +518,160 @@ func has_visible_enemy() -> bool:
 
 
 func path_to(target: Vector2i) -> Array[Vector2i]:
-	var result: Array[Vector2i] = []
-	if not is_explored(target) or target == hero:
-		return result
-	var queue: Array[Vector2i] = [hero]
-	var previous := {hero: hero}
-	var head := 0
-	while head < queue.size():
-		var p := queue[head]
-		head += 1
-		if p == target:
-			break
-		for direction in DIRS8:
-			var next: Vector2i = p + direction
-			if previous.has(next) or not is_explored(next) or is_wall_tile(tile_at(next)):
-				continue
-			previous[next] = p
-			queue.append(next)
-	if not previous.has(target):
-		return result
-	var p := target
-	while p != hero:
-		result.push_front(p)
-		p = previous[p]
-	return result
+	if not is_explored(target) or target == hero or is_wall_tile(tile_at(target)):
+		return []
+	return SpdPathFinder.find_path(WIDTH, HEIGHT, hero, target, _path_passability(true))
+
+
+func _path_passability(explored_only: bool) -> PackedByteArray:
+	var passable := PackedByteArray()
+	passable.resize(WIDTH * HEIGHT)
+	for index in range(tiles.size()):
+		passable[index] = 1 if not is_wall_tile(tiles[index]) \
+			and (not explored_only or explored[index] != 0) \
+			and (explored_only or tiles[index] != CLOSED_DOOR) else 0
+	return passable
+
+
+func snapshot() -> Dictionary:
+	var saved_rooms: Array = []
+	for room in rooms:
+		saved_rooms.append([room.position.x, room.position.y, room.size.x, room.size.y])
+	var saved_mobs: Array = []
+	for mob in mobs:
+		saved_mobs.append({"id": mob.get("id", -1), "kind": mob["kind"],
+			"pos": _vector_data(mob["pos"]), "hp": mob["hp"], "state": mob["state"],
+			"enemy_seen": mob["enemy_seen"], "target": _vector_data(mob["target"])})
+	var saved_potions: Array = []
+	for potion in potions:
+		saved_potions.append(_vector_data(potion))
+	var saved_tiles: Array = []
+	for tile in tiles:
+		saved_tiles.append(tile)
+	var saved_explored: Array = []
+	for bit in explored:
+		saved_explored.append(bit)
+	return {"map_size": [WIDTH, HEIGHT], "tiles": saved_tiles, "explored": saved_explored,
+		"rooms": saved_rooms, "mobs": saved_mobs, "potions": saved_potions,
+		"hero": _vector_data(hero), "stairs": _vector_data(stairs),
+		"depth": depth, "hp": hp, "max_hp": max_hp,
+		"potion_count": potion_count, "healing_left": healing_left,
+		"turns": turns, "message": message, "rng": rng.state_snapshot(),
+		"clock": clock.snapshot(), "next_actor_id": next_actor_id}
+
+
+func restore_snapshot(saved: Dictionary) -> bool:
+	var saved_size = saved.get("map_size")
+	if typeof(saved_size) != TYPE_ARRAY or saved_size.size() != 2 \
+			or not _is_saved_int(saved_size[0]) or not _is_saved_int(saved_size[1]) \
+			or int(saved_size[0]) != WIDTH or int(saved_size[1]) != HEIGHT:
+		return false
+	var saved_tiles = saved.get("tiles")
+	var saved_explored = saved.get("explored")
+	var saved_rooms = saved.get("rooms")
+	var saved_mobs = saved.get("mobs")
+	var saved_potions = saved.get("potions")
+	if typeof(saved_tiles) != TYPE_ARRAY or saved_tiles.size() != WIDTH * HEIGHT \
+			or typeof(saved_explored) != TYPE_ARRAY or saved_explored.size() != WIDTH * HEIGHT \
+			or typeof(saved_rooms) != TYPE_ARRAY or typeof(saved_mobs) != TYPE_ARRAY \
+			or typeof(saved_potions) != TYPE_ARRAY:
+		return false
+	if not _valid_saved_vector(saved.get("hero")) or not _valid_saved_vector(saved.get("stairs")):
+		return false
+	for key in ["depth", "hp", "max_hp", "potion_count", "healing_left", "turns", "next_actor_id"]:
+		if not _is_saved_int(saved.get(key)):
+			return false
+	if saved["depth"] < 1 or saved["max_hp"] < 1 or saved["hp"] < 0 \
+			or saved["hp"] > saved["max_hp"] or saved["potion_count"] < 0 \
+			or saved["healing_left"] < 0 or saved["turns"] < 0 or saved["next_actor_id"] < 1:
+		return false
+	if typeof(saved.get("message")) != TYPE_STRING or typeof(saved.get("rng")) != TYPE_ARRAY \
+			or typeof(saved.get("clock")) != TYPE_DICTIONARY:
+		return false
+	var restored_tiles := PackedInt32Array()
+	for value in saved_tiles:
+		if not _is_saved_int(value) or value < WALL or value > WALL_DECO:
+			return false
+		restored_tiles.append(int(value))
+	var restored_explored := PackedByteArray()
+	for value in saved_explored:
+		if not _is_saved_int(value) or value < 0 or value > 1:
+			return false
+		restored_explored.append(int(value))
+	var restored_rooms: Array[Rect2i] = []
+	for value in saved_rooms:
+		if typeof(value) != TYPE_ARRAY or value.size() != 4:
+			return false
+		for component in value:
+			if not _is_saved_int(component):
+				return false
+		if value[2] <= 0 or value[3] <= 0 or value[0] < 0 or value[1] < 0 \
+				or value[0] + value[2] > WIDTH or value[1] + value[3] > HEIGHT:
+			return false
+		restored_rooms.append(Rect2i(int(value[0]), int(value[1]), int(value[2]), int(value[3])))
+	var restored_mobs: Array[Dictionary] = []
+	var ids := {}
+	for value in saved_mobs:
+		if typeof(value) != TYPE_DICTIONARY or not SpdCombat.MOB_STATS.has(value.get("kind")) \
+				or not _valid_saved_vector(value.get("pos")) or not _valid_saved_vector(value.get("target")) \
+				or not _is_saved_int(value.get("id")) or not _is_saved_int(value.get("hp")) \
+				or typeof(value.get("enemy_seen")) != TYPE_BOOL \
+				or not ["sleeping", "hunting", "wandering"].has(value.get("state")):
+			return false
+		if value["id"] < 1 or ids.has(value["id"]) or value["hp"] <= 0 \
+				or value["id"] >= saved["next_actor_id"]:
+			return false
+		ids[int(value["id"])] = true
+		restored_mobs.append({"id": int(value["id"]), "kind": value["kind"],
+			"pos": _data_vector(value["pos"]), "hp": int(value["hp"]), "state": value["state"],
+			"enemy_seen": value["enemy_seen"], "target": _data_vector(value["target"])})
+	var restored_potions: Array[Vector2i] = []
+	for value in saved_potions:
+		if not _valid_saved_vector(value):
+			return false
+		restored_potions.append(_data_vector(value))
+	if not rng.restore_state(saved["rng"]) or not clock.restore(saved["clock"]) \
+			or not clock.has(0):
+		return false
+	for mob in restored_mobs:
+		if not clock.has(mob["id"]):
+			return false
+	tiles = restored_tiles
+	explored = restored_explored
+	visible.resize(WIDTH * HEIGHT)
+	visible.fill(0)
+	rooms = restored_rooms
+	mobs = restored_mobs
+	potions = restored_potions
+	hero = _data_vector(saved["hero"])
+	stairs = _data_vector(saved["stairs"])
+	depth = int(saved["depth"])
+	hp = int(saved["hp"])
+	max_hp = int(saved["max_hp"])
+	potion_count = int(saved["potion_count"])
+	healing_left = int(saved["healing_left"])
+	turns = int(saved["turns"])
+	message = saved["message"]
+	next_actor_id = int(saved["next_actor_id"])
+	_reveal()
+	return true
+
+
+static func _vector_data(value: Vector2i) -> Array:
+	return [value.x, value.y]
+
+
+static func _valid_saved_vector(value) -> bool:
+	return typeof(value) == TYPE_ARRAY and value.size() == 2 \
+		and _is_saved_int(value[0]) and _is_saved_int(value[1]) \
+		and value[0] >= 0 and value[0] < WIDTH and value[1] >= 0 and value[1] < HEIGHT
+
+
+static func _data_vector(value: Array) -> Vector2i:
+	return Vector2i(int(value[0]), int(value[1]))
+
+
+static func _is_saved_int(value) -> bool:
+	return (typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT) \
+		and absf(float(value)) <= 9007199254740991.0 \
+		and float(value) == floorf(float(value))

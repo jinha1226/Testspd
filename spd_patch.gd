@@ -1,10 +1,9 @@
 extends RefCounted
 ## Godot port of levels/Patch.java generate(), upstream 2bb34a4.
-## RNG source differs from watabou.utils.Random, but clustering and forced
-## fill-rate rules follow the Java algorithm.
+## Clustering and forced fill-rate rules follow the Java algorithm.
 
 
-static func generate(rng: RandomNumberGenerator, width: int, height: int,
+static func generate(rng, width: int, height: int,
 		fill: float, clustering: int, force_fill_rate: bool) -> PackedByteArray:
 	var length := width * height
 	var target := roundi(length * fill)

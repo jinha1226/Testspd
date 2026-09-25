@@ -56,6 +56,12 @@ jobs:
           ! grep -Eq 'SCRIPT ERROR|Parse Error|Failed to load script|^ERROR:' "$RUNNER_TEMP/import.log"
           "$GODOT_BIN" --headless --path . --script res://tests/smoke.gd 2>&1 | tee "$RUNNER_TEMP/smoke.log"
           grep -Fq 'SPD port smoke passed' "$RUNNER_TEMP/smoke.log"
+          "$GODOT_BIN" --headless --path . --script res://tests/foundation.gd 2>&1 | tee "$RUNNER_TEMP/foundation.log"
+          grep -Fq 'SPD foundation passed' "$RUNNER_TEMP/foundation.log"
+          "$GODOT_BIN" --headless --path . --script res://tests/pathfinder.gd 2>&1 | tee "$RUNNER_TEMP/pathfinder.log"
+          grep -Fq 'SPD PathFinder passed' "$RUNNER_TEMP/pathfinder.log"
+          "$GODOT_BIN" --headless --path . --script res://tests/save_ui.gd 2>&1 | tee "$RUNNER_TEMP/save_ui.log"
+          grep -Fq 'SPD save UI passed' "$RUNNER_TEMP/save_ui.log"
           "$GODOT_BIN" --headless --path . --script res://tests/font.gd 2>&1 | tee "$RUNNER_TEMP/font.log"
           grep -Fq 'Korean UI font passed' "$RUNNER_TEMP/font.log"
 

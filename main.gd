@@ -1,6 +1,7 @@
 extends Control
 
 const Run = preload("res://run.gd")
+const SpdSave = preload("res://spd_save.gd")
 const TILE_TEXTURE = preload("res://assets/tiles_sewers.png")
 const HERO_TEXTURE = preload("res://assets/warrior.png")
 const RAT_TEXTURE = preload("res://assets/rat.png")
@@ -23,6 +24,8 @@ var potion_button: Button
 var restart_button: Button
 var auto_path: Array[Vector2i] = []
 var auto_elapsed := 0.0
+var autosave_enabled := true
+var save_failed := false
 
 
 func _ready() -> void:
@@ -30,7 +33,13 @@ func _ready() -> void:
 	var ui_theme := Theme.new()
 	ui_theme.default_font = UI_FONT
 	theme = ui_theme
-	run.start()
+	if SpdSave.exists(1):
+		if not SpdSave.load(run, 1):
+			run.start()
+			autosave_enabled = false
+			run.message = "저장 파일을 읽지 못했습니다. 새 게임을 누르면 새로 저장합니다."
+	else:
+		run.start()
 	_create_ui()
 	_layout_ui()
 	_refresh()
@@ -259,8 +268,12 @@ func _process(delta: float) -> void:
 	var next: Vector2i = auto_path.front()
 	var before: Vector2i = run.hero
 	var before_depth: int = run.depth
-	if not run.step(next - before) or run.hero == before:
+	if not run.step(next - before):
 		auto_path.clear()
+	elif run.hero == before:
+		# Opening a door takes a turn; keep the same path step for the next tick.
+		if run.tile_at(next) != Run.OPEN_DOOR:
+			auto_path.clear()
 	elif run.depth != before_depth:
 		auto_path.clear()
 	else:
@@ -285,6 +298,7 @@ func _on_potion() -> void:
 func _on_restart() -> void:
 	auto_path.clear()
 	run.start()
+	autosave_enabled = true
 	_refresh()
 
 
@@ -294,4 +308,9 @@ func _refresh() -> void:
 	]
 	message_label.text = run.message
 	potion_button.disabled = run.potion_count == 0 or run.hp >= run.max_hp
+	if autosave_enabled:
+		var saved: bool = SpdSave.save(run, 1)
+		if not saved and not save_failed:
+			message_label.text += " 저장에 실패했습니다."
+		save_failed = not saved
 	queue_redraw()

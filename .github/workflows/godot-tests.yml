@@ -48,6 +48,27 @@ jobs:
           "$GODOT_BIN" --headless --path . --script res://tests/smoke.gd 2>&1 | tee smoke.log
           grep -Fq 'SPD port smoke passed' smoke.log
 
+      - name: Verify Java RNG and actor scheduling
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/foundation.gd 2>&1 | tee foundation.log
+          grep -Fq 'SPD foundation passed' foundation.log
+
+      - name: Verify source-style pathfinding
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/pathfinder.gd 2>&1 | tee pathfinder.log
+          grep -Fq 'SPD PathFinder passed' pathfinder.log
+
+      - name: Verify resume and autosave UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/save_ui.gd 2>&1 | tee save_ui.log
+          grep -Fq 'SPD save UI passed' save_ui.log
+
       - name: Verify Korean UI font
         shell: bash
         run: |

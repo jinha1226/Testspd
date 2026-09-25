@@ -29,17 +29,17 @@ const MOB_STATS := {
 }
 
 
-static func normal_int_range(rng: RandomNumberGenerator, minimum: int, maximum: int) -> int:
+static func normal_int_range(rng, minimum: int, maximum: int) -> int:
 	# watabou.utils.Random.NormalIntRange: sum of two uniform rolls.
 	return mini(maximum, minimum + int((rng.randf() + rng.randf()) * (maximum - minimum + 1) / 2.0))
 
 
-static func hit(rng: RandomNumberGenerator, attack_skill: int, defense_skill: int) -> bool:
+static func hit(rng, attack_skill: int, defense_skill: int) -> bool:
 	# Char.hit: independent uniform rolls; attacker wins ties.
 	return rng.randf() * attack_skill >= rng.randf() * defense_skill
 
 
-static func attack(rng: RandomNumberGenerator, attack_skill: int, defense_skill: int,
+static func attack(rng, attack_skill: int, defense_skill: int,
 		damage_min: int, damage_max: int, dr_min: int, dr_max: int) -> Dictionary:
 	if not hit(rng, attack_skill, defense_skill):
 		return {"hit": false, "damage": 0}
@@ -52,7 +52,7 @@ static func mob_hp(kind: String) -> int:
 	return int(MOB_STATS.get(kind, MOB_STATS["rat"])["hp"])
 
 
-static func warrior_attacks_mob(rng: RandomNumberGenerator, kind: String, surprised: bool) -> Dictionary:
+static func warrior_attacks_mob(rng, kind: String, surprised: bool) -> Dictionary:
 	# Mob.defenseSkill returns zero when surprised by the hero.
 	var stats: Dictionary = MOB_STATS.get(kind, MOB_STATS["rat"])
 	var defense := 0 if surprised else int(stats["defense"])
@@ -65,7 +65,7 @@ static func warrior_attacks_mob(rng: RandomNumberGenerator, kind: String, surpri
 	return strike
 
 
-static func mob_attacks_warrior(rng: RandomNumberGenerator, kind: String) -> Dictionary:
+static func mob_attacks_warrior(rng, kind: String) -> Dictionary:
 	var stats: Dictionary = MOB_STATS.get(kind, MOB_STATS["rat"])
 	return attack(rng, int(stats["attack"]), HERO_DEFENSE_SKILL,
 		int(stats["damage_min"]), int(stats["damage_max"]), CLOTH_ARMOR_DR_MIN, CLOTH_ARMOR_DR_MAX)

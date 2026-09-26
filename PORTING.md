@@ -2,8 +2,12 @@
 
 원본 기준: [`00-Evan/shattered-pixel-dungeon` `2bb34a4e91d29c8785a9363cad6ddfe5122b1d4f`](https://github.com/00-Evan/shattered-pixel-dungeon/tree/2bb34a4e91d29c8785a9363cad6ddfe5122b1d4f). 이 문서는 실제로 대응시킨 코드와 아직 다른 동작을 구분합니다. 전체 게임의 완성 여부를 뜻하지 않습니다.
 
+전체 Java 소스 1,323개의 경로·SHA-256·이식 상태는 [`PORT_INVENTORY.tsv`](PORT_INVENTORY.tsv)에 기록했습니다. `ported_unwired`는 메서드를 옮겼으나 현재 게임 루프에서 아직 쓰지 않는 코드, `partial`은 원본 클래스의 일부만 대응한 코드입니다. 나머지는 모두 `unported`로 표시했습니다. 원본 체크아웃을 같은 커밋으로 고정한 뒤 `python3 tools/port_inventory.py /path/to/shattered-pixel-dungeon`으로 목록을 다시 생성할 수 있습니다. 이 파일의 수치가 실제 이식 진척도이며, 아래 표의 플레이 가능한 근사 기능 수와 혼동하면 안 됩니다.
+
 | 원본 Java | Godot | 현재 대응 범위 |
 | --- | --- | --- |
+| `watabou/utils/Point.java`, `PointF.java`, `Rect.java`, `GameMath.java` | `spd_point.gd`, `spd_pointf.gd`, `spd_rect.gd`, `spd_game_math.gd` | 원본의 가변 좌표, 사각형 경계·내부 판정, 보간·각도, 속도·범위 제한 메서드를 파일별로 대응. `PointF`의 Java `float` 32비트 반올림은 아직 별도 재현하지 않아 극단적인 소수 입력은 차이가 날 수 있음. 현재 게임 루프에는 미연결. |
+| `watabou/utils/Graph.java`, `levels/rooms/Room.java`, `levels/builders/Builder.java` | `spd_graph.gd`, `spd_room.gd`, `spd_room_door.gd`, `spd_builder.gd` | 방의 포함 경계·문 연결·방 그래프 거리와 경로·빈 공간 탐색·각도에 따른 다음 방 배치를 원본 메서드 순서로 대응. 아직 실제 층 생성에는 미연결. `Room.paint`, `Painter.fill`, 구체 방 하위 클래스, 빌더별 `build`는 미이식. |
 | `watabou/utils/Random.java`, `java.util.Random`, `Dungeon.seedForDepth` | `spd_random.gd`, `spd_floor_seed.gd`, `run.gd` | Java 48비트 생성기, MX3 시드 섞기, 중첩 생성기, 유계 정수·실수. 층별 시드의 원본 계산식과 생성 중 난수 스택 분리. 고정 시드 출력으로 검증. 층 생성 내부의 호출 순서는 여전히 달라 지도 동일성은 미보장. |
 | `actors/Actor.java` | `spd_actor_clock.gd`, `run.gd` | 시간·우선순위에 따라 영웅과 몹 행동을 선택하며 게의 2배 속도를 소수 시간으로 처리. 버프·블롭·애니메이션의 전체 스케줄링은 미이식. |
 | `watabou/utils/PathFinder.java` | `spd_pathfinder.gd`, `run.gd` | 목표에서 역방향으로 거리 지도를 만들고 원본 이웃 순서로 영웅·몹 경로를 선택. 도주용 거리 지도는 미이식. |

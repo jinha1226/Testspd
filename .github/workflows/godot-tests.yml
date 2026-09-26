@@ -62,6 +62,19 @@ jobs:
           "$GODOT_BIN" --headless --path . --script res://tests/pathfinder.gd 2>&1 | tee pathfinder.log
           grep -Fq 'SPD PathFinder passed' pathfinder.log
 
+      - name: Verify Java geometry, rooms, builders, and graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/geometry.gd 2>&1 | tee geometry.log
+          grep -Fq 'SPD Java Point/Rect/PointF/GameMath geometry passed' geometry.log
+          "$GODOT_BIN" --headless --path . --script res://tests/room_geometry.gd 2>&1 | tee room_geometry.log
+          grep -Fq 'SPD Java Room geometry and Door graph passed' room_geometry.log
+          "$GODOT_BIN" --headless --path . --script res://tests/builder.gd 2>&1 | tee builder.log
+          grep -Fq 'SPD Java Builder room placement passed' builder.log
+          "$GODOT_BIN" --headless --path . --script res://tests/graph.gd 2>&1 | tee graph.log
+          grep -Fq 'SPD Java Graph distance and path passed' graph.log
+
       - name: Verify 26-floor campaign progression
         shell: bash
         run: |

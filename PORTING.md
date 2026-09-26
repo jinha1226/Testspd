@@ -11,7 +11,7 @@
 | `watabou/utils/Graph.java`, `levels/rooms/Room.java`, `levels/builders/Builder.java` | `spd_graph.gd`, `spd_room.gd`, `spd_room_door.gd`, `spd_builder.gd` | 방의 포함 경계·문 연결·방 그래프 거리와 경로·빈 공간 탐색·각도에 따른 다음 방 배치를 원본 메서드 순서로 대응. 아직 실제 층 생성에는 미연결. `Room.paint`, `Painter.fill`, 구체 방 하위 클래스, 빌더별 `build`는 미이식. |
 | `watabou/utils/Random.java`, `java.util.Random`, `Dungeon.seedForDepth` | `spd_random.gd`, `spd_floor_seed.gd`, `run.gd` | Java 48비트 생성기, MX3 시드 섞기, 중첩 생성기, 실수·정수 범위, 삼각 분포·역삼각 분포, 배열·리스트 셔플과 가중 선택. 층별 시드의 원본 계산식과 생성 중 난수 스택 분리. 원본의 무시드 생성기와 Java `HashMap` 순회 순서는 아직 같지 않음. 층 생성 내부의 호출 순서도 여전히 달라 지도 동일성은 미보장. |
 | `actors/Actor.java` | `spd_actor_clock.gd`, `run.gd` | 시간·우선순위에 따라 영웅과 몹 행동을 선택하며 게의 2배 속도를 소수 시간으로 처리. 버프·블롭·애니메이션의 전체 스케줄링은 미이식. |
-| `watabou/utils/PathFinder.java` | `spd_pathfinder.gd`, `run.gd` | 목표에서 역방향으로 거리 지도를 만들고 원본 이웃 순서로 영웅·몹 경로를 선택. 도주용 거리 지도는 미이식. |
+| `watabou/utils/PathFinder.java` | `spd_pathfinder.gd`, `run.gd` | 목표에서 역방향으로 거리 지도를 만들고 원본 이웃 순서로 영웅·몹 경로를 선택. 제한 거리 지도와 도주 방향 계산도 이식했으나 도주 AI에는 미연결. Java의 정적 배열 캐시와 모든 오버로드는 아직 미이식. |
 | `mechanics/ShadowCaster.java` | `spd_shadowcaster.gd` | 8방향 재귀 섀도캐스팅, 원형 시야 보정, 거리 2 코너 처리. 배열 경계 검사를 추가했습니다. |
 | `watabou/utils/Random.NormalIntRange`, `actors/Char.hit`·`attack` | `spd_combat.gd` | 삼각 분포 피해·방어 굴림, 명중 대 회피 굴림, `max(피해-방어, 0)`. 상태 효과·장비 강화·특성은 미포함. |
 | `actors/hero/Hero.java`, `items/weapon/melee/MeleeWeapon.java`, `items/armor/Armor.java` | `spd_combat.gd`, `run.gd` | HP 20에서 레벨당 5 증가, 경험치 요구량 `5 + 5 × 레벨`, 명중·회피 레벨 증가, 기본 무기 피해·방어 및 힘 요구치 공식. 직업·특성·개별 무기 특성은 미포함. |

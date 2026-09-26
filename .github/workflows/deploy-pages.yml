@@ -63,7 +63,7 @@ jobs:
           "$GODOT_BIN" --headless --path . --script res://tests/barray.gd 2>&1 | tee "$RUNNER_TEMP/barray.log"
           grep -Fq 'SPD Java BArray methods passed' "$RUNNER_TEMP/barray.log"
           "$GODOT_BIN" --headless --path . --script res://tests/pathfinder.gd 2>&1 | tee "$RUNNER_TEMP/pathfinder.log"
-          grep -Fq 'SPD PathFinder passed' "$RUNNER_TEMP/pathfinder.log"
+          grep -Fq 'SPD PathFinder passed: detours, distance maps, and retreat' "$RUNNER_TEMP/pathfinder.log"
           "$GODOT_BIN" --headless --path . --script res://tests/geometry.gd 2>&1 | tee "$RUNNER_TEMP/geometry.log"
           grep -Fq 'SPD Java Point/Rect/PointF/GameMath geometry passed' "$RUNNER_TEMP/geometry.log"
           "$GODOT_BIN" --headless --path . --script res://tests/room_geometry.gd 2>&1 | tee "$RUNNER_TEMP/room_geometry.log"

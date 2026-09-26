@@ -62,6 +62,13 @@ jobs:
           "$GODOT_BIN" --headless --path . --script res://tests/pathfinder.gd 2>&1 | tee pathfinder.log
           grep -Fq 'SPD PathFinder passed' pathfinder.log
 
+      - name: Verify 26-floor campaign progression
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/campaign.gd 2>&1 | tee campaign.log
+          grep -Fq 'SPD campaign passed' campaign.log
+
       - name: Verify resume and autosave UI
         shell: bash
         run: |

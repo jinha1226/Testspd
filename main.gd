@@ -2,7 +2,12 @@ extends Control
 
 const Run = preload("res://run.gd")
 const SpdSave = preload("res://spd_save.gd")
+const SpdCampaign = preload("res://spd_campaign.gd")
 const TILE_TEXTURE = preload("res://assets/tiles_sewers.png")
+const REGION_TILES = [
+	TILE_TEXTURE, preload("res://assets/tiles_prison.png"),
+	preload("res://assets/tiles_caves.png"), preload("res://assets/tiles_city.png"),
+	preload("res://assets/tiles_halls.png")]
 const HERO_TEXTURE = preload("res://assets/warrior.png")
 const RAT_TEXTURE = preload("res://assets/rat.png")
 const SNAKE_TEXTURE = preload("res://assets/snake.png")
@@ -11,16 +16,45 @@ const SWARM_TEXTURE = preload("res://assets/swarm.png")
 const CRAB_TEXTURE = preload("res://assets/crab.png")
 const SLIME_TEXTURE = preload("res://assets/slime.png")
 const ITEM_TEXTURE = preload("res://assets/items.png")
+const OTHER_MOBS = {
+	"goo": preload("res://assets/goo.png"),
+	"skeleton": preload("res://assets/skeleton.png"),
+	"thief": preload("res://assets/thief.png"),
+	"dm100": preload("res://assets/dm100.png"),
+	"guard": preload("res://assets/guard.png"),
+	"necromancer": preload("res://assets/necromancer.png"),
+	"tengu": preload("res://assets/tengu.png"),
+	"bat": preload("res://assets/bat.png"),
+	"brute": preload("res://assets/brute.png"),
+	"shaman": preload("res://assets/shaman.png"),
+	"spinner": preload("res://assets/spinner.png"),
+	"dm200": preload("res://assets/dm200.png"),
+	"dm300": preload("res://assets/dm300.png"),
+	"ghoul": preload("res://assets/ghoul.png"),
+	"elemental": preload("res://assets/elemental.png"),
+	"warlock": preload("res://assets/warlock.png"),
+	"monk": preload("res://assets/monk.png"),
+	"golem": preload("res://assets/golem.png"),
+	"king": preload("res://assets/king.png"),
+	"succubus": preload("res://assets/succubus.png"),
+	"eye": preload("res://assets/eye.png"),
+	"scorpio": preload("res://assets/scorpio.png"),
+	"yog": preload("res://assets/yog.png"),
+}
 const UI_FONT = preload("res://assets/fonts/Galmuri11.ttf")
 const CELL_SIZE := 32.0
-const MAP_TOP := 88.0
-const MAP_BOTTOM_MARGIN := 166.0
+const MAP_TOP := 100.0
+const MAP_BOTTOM_MARGIN := 252.0
 
 var run = Run.new()
 var status_label: Label
 var message_label: Label
 var wait_button: Button
 var potion_button: Button
+var food_button: Button
+var wand_button: Button
+var weapon_upgrade_button: Button
+var armor_upgrade_button: Button
 var restart_button: Button
 var slot_button: OptionButton
 var auto_path: Array[Vector2i] = []
@@ -28,6 +62,7 @@ var auto_elapsed := 0.0
 var active_slot := 1
 var autosave_enabled := true
 var save_failed := false
+var wand_targeting := false
 
 
 func _ready() -> void:
@@ -56,7 +91,7 @@ func _notification(what: int) -> void:
 func _create_ui() -> void:
 	status_label = Label.new()
 	status_label.add_theme_color_override("font_color", Color(0.93, 0.87, 0.72))
-	status_label.add_theme_font_size_override("font_size", 20)
+	status_label.add_theme_font_size_override("font_size", 14)
 	add_child(status_label)
 	message_label = Label.new()
 	message_label.add_theme_color_override("font_color", Color(0.75, 0.79, 0.72))
@@ -65,6 +100,10 @@ func _create_ui() -> void:
 	add_child(message_label)
 	wait_button = _button("대기", _on_wait)
 	potion_button = _button("물약", _on_potion)
+	food_button = _button("식량", _on_food)
+	wand_button = _button("지팡이", _on_wand)
+	weapon_upgrade_button = _button("무기 강화", _on_upgrade_weapon)
+	armor_upgrade_button = _button("갑옷 강화", _on_upgrade_armor)
 	restart_button = _button("새 게임", _on_restart)
 	slot_button = OptionButton.new()
 	for slot in range(1, SpdSave.SLOT_COUNT + 1):
@@ -85,15 +124,17 @@ func _button(caption: String, callback: Callable) -> Button:
 
 func _layout_ui() -> void:
 	status_label.position = Vector2(12, 12)
-	status_label.size = Vector2(size.x - 24, 28)
-	message_label.position = Vector2(12, 45)
-	message_label.size = Vector2(size.x - 24, 37)
+	status_label.size = Vector2(size.x - 24, 42)
+	message_label.position = Vector2(12, 55)
+	message_label.size = Vector2(size.x - 24, 40)
 	var width := (size.x - 30.0) / 2.0
-	var controls: Array[Control] = [wait_button, potion_button, restart_button, slot_button]
+	var controls: Array[Control] = [wait_button, potion_button, food_button,
+		wand_button, weapon_upgrade_button, armor_upgrade_button,
+		restart_button, slot_button]
 	for index in range(controls.size()):
 		var button: Control = controls[index]
 		button.position = Vector2(10.0 + (index % 2) * (width + 10.0),
-			size.y - 136.0 + int(index / 2) * 64.0)
+			size.y - 236.0 + int(index / 2) * 58.0)
 		button.size = Vector2(width, 52)
 
 
@@ -124,6 +165,7 @@ func _draw() -> void:
 		Rect2(left, MAP_TOP, cols * CELL_SIZE, rows * CELL_SIZE),
 		Color(0.045, 0.055, 0.06)
 	)
+	var terrain_texture: Texture2D = REGION_TILES[SpdCampaign.region(run.depth)]
 	for y in range(rows):
 		for x in range(cols):
 			var cell := camera + Vector2i(x, y)
@@ -139,10 +181,13 @@ func _draw() -> void:
 				Vector2(16, 16)
 			)
 			var tint := Color.WHITE if run.is_visible(cell) else Color(0.34, 0.39, 0.42)
-			draw_texture_rect_region(TILE_TEXTURE, destination, source, tint)
+			draw_texture_rect_region(terrain_texture, destination, source, tint)
 			if run.is_visible(cell):
 				if run.potions.has(cell):
 					_draw_sprite(ITEM_TEXTURE, Rect2(0, 22 * 16, 16, 16), destination)
+				for item in run.items:
+					if item["pos"] == cell:
+						_draw_sprite(ITEM_TEXTURE, _item_source(item), destination)
 				for mob in run.mobs:
 					if mob["pos"] == cell:
 						_draw_mob(mob["kind"], destination)
@@ -178,7 +223,23 @@ func _draw_mob(kind: String, cell: Rect2) -> void:
 			_draw_sprite(SLIME_TEXTURE, Rect2(0, 0, 14, 12),
 				Rect2(cell.position + Vector2(2, 4), Vector2(28, 24)))
 		_:
-			_draw_sprite(RAT_TEXTURE, Rect2(0, 0, 16, 15), cell)
+			var texture: Texture2D = OTHER_MOBS.get(kind, RAT_TEXTURE)
+			_draw_sprite(texture, Rect2(0, 0, 16, 16), cell)
+
+
+func _item_source(item: Dictionary) -> Rect2:
+	match item["kind"]:
+		"food": return Rect2(5 * 16, 27 * 16, 16, 16)
+		"upgrade": return Rect2(0, 19 * 16, 16, 16)
+		"strength": return Rect2(1 * 16, 22 * 16, 16, 16)
+		"armor": return Rect2(clampi(int(item["tier"]), 0, 4) * 16, 11 * 16, 16, 16)
+		"wand": return Rect2(0, 13 * 16, 16, 16)
+		"amulet": return Rect2(13 * 16, 3 * 16, 16, 16)
+		"weapon":
+			var tier := clampi(int(item["tier"]), 1, 5)
+			return Rect2((0 if tier % 2 == 1 else 8) * 16,
+				(6 + int((tier - 1) / 2)) * 16, 16, 16)
+	return Rect2(0, 0, 16, 16)
 
 
 func _visual_tile(cell: Vector2i) -> int:
@@ -232,6 +293,12 @@ func _gui_input(event: InputEvent) -> void:
 		if x < 0 or x >= cols or y < 0 or y >= _board_rows():
 			return
 		var target: Vector2i = _camera_origin() + Vector2i(x, y)
+		if wand_targeting:
+			wand_targeting = false
+			auto_path.clear()
+			run.zap(target)
+			_refresh()
+			return
 		if target == run.hero:
 			return
 		if maxi(absi(target.x - run.hero.x), absi(target.y - run.hero.y)) == 1:
@@ -262,8 +329,26 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_P:
 			_on_potion()
 			return
+		KEY_F:
+			_on_food()
+			return
+		KEY_Z:
+			_on_wand()
+			return
+		KEY_U:
+			_on_upgrade_weapon()
+			return
+		KEY_O:
+			_on_upgrade_armor()
+			return
+		KEY_ESCAPE:
+			wand_targeting = false
+			run.message = "대상을 선택하지 않았습니다."
+			_refresh()
+			return
 	if direction != Vector2i.ZERO:
 		auto_path.clear()
+		wand_targeting = false
 		run.step(direction)
 		_refresh()
 
@@ -295,18 +380,49 @@ func _process(delta: float) -> void:
 
 func _on_wait() -> void:
 	auto_path.clear()
+	wand_targeting = false
 	run.wait_turn()
 	_refresh()
 
 
 func _on_potion() -> void:
 	auto_path.clear()
+	wand_targeting = false
 	run.drink_potion()
+	_refresh()
+
+
+func _on_food() -> void:
+	auto_path.clear()
+	wand_targeting = false
+	run.eat_food()
+	_refresh()
+
+
+func _on_wand() -> void:
+	auto_path.clear()
+	wand_targeting = run.wand_charges > 0 and not run.won and run.hp > 0
+	run.message = "마법으로 공격할 적을 선택하세요." if wand_targeting else "지팡이에 충전량이 없습니다."
+	_refresh()
+
+
+func _on_upgrade_weapon() -> void:
+	auto_path.clear()
+	wand_targeting = false
+	run.upgrade_weapon()
+	_refresh()
+
+
+func _on_upgrade_armor() -> void:
+	auto_path.clear()
+	wand_targeting = false
+	run.upgrade_armor()
 	_refresh()
 
 
 func _on_restart() -> void:
 	auto_path.clear()
+	wand_targeting = false
 	run.start()
 	autosave_enabled = true
 	_refresh()
@@ -317,6 +433,7 @@ func _on_slot_selected(index: int) -> void:
 	if slot == active_slot:
 		return
 	auto_path.clear()
+	wand_targeting = false
 	var selected_run = Run.new()
 	if SpdSave.exists(slot):
 		if not SpdSave.load(selected_run, slot):
@@ -335,11 +452,21 @@ func _on_slot_selected(index: int) -> void:
 
 
 func _refresh() -> void:
-	status_label.text = "%d층  HP %d/%d  물약 %d  턴 %d" % [
-		run.depth, run.hp, run.max_hp, run.potion_count, run.turns
-	]
+	status_label.text = "%d층 %s  HP %d/%d  Lv%d %d/%d\n무기 %d+%d  갑옷 %d+%d  허기 %d  턴 %d" % [
+		run.depth, SpdCampaign.region_name(run.depth), run.hp, run.max_hp,
+		run.level, run.experience, 5 + run.level * 5, run.weapon_tier,
+		run.weapon_level, run.armor_tier, run.armor_level, run.hunger, run.turns]
 	message_label.text = run.message
-	potion_button.disabled = run.potion_count == 0 or run.hp >= run.max_hp
+	potion_button.text = "물약 %d" % run.potion_count
+	food_button.text = "식량 %d" % run.food_count
+	wand_button.text = "지팡이 %d" % run.wand_charges
+	weapon_upgrade_button.text = "무기 강화 %d" % run.upgrade_count
+	armor_upgrade_button.text = "갑옷 강화 %d" % run.upgrade_count
+	potion_button.disabled = run.potion_count == 0 or run.hp >= run.max_hp or run.won
+	food_button.disabled = run.food_count == 0 or run.won or run.hp <= 0
+	wand_button.disabled = run.wand_charges == 0 or run.won or run.hp <= 0
+	weapon_upgrade_button.disabled = run.upgrade_count == 0 or run.won or run.hp <= 0
+	armor_upgrade_button.disabled = run.upgrade_count == 0 or run.won or run.hp <= 0
 	if autosave_enabled:
 		var saved: bool = SpdSave.save(run, active_slot)
 		if not saved and not save_failed:

@@ -7,6 +7,7 @@ const SpdPatch = preload("res://spd_patch.gd")
 const SpdRandom = preload("res://spd_random.gd")
 const SpdActorClock = preload("res://spd_actor_clock.gd")
 const SpdPathFinder = preload("res://spd_pathfinder.gd")
+const SpdCampaign = preload("res://spd_campaign.gd")
 
 const WIDTH := 36
 const HEIGHT := 36
@@ -34,13 +35,28 @@ var visible := PackedByteArray()
 var rooms: Array[Rect2i] = []
 var mobs: Array[Dictionary] = []
 var potions: Array[Vector2i] = []
+var items: Array[Dictionary] = []
 var hero := Vector2i.ZERO
 var stairs := Vector2i.ZERO
 var depth := 1
 var hp := 20
 var max_hp := 20
 var potion_count := 0
+var food_count := 1
+var upgrade_count := 0
+var wand_charges := 0
+var hunger := 0
+var hunger_damage := 0.0
+var level := 1
+var experience := 0
+var strength := 10
+var weapon_tier := 1
+var weapon_level := 0
+var armor_tier := 1
+var armor_level := 0
+var won := false
 var healing_left := 0
+var ooze_left := 0
 var turns := 0
 var message := ""
 var rng = SpdRandom.new()
@@ -53,7 +69,21 @@ func start(seed_value: int = 0) -> void:
 	depth = 1
 	hp = max_hp
 	potion_count = 0
+	food_count = 1
+	upgrade_count = 0
+	wand_charges = 0
+	hunger = 0
+	hunger_damage = 0.0
+	level = 1
+	experience = 0
+	strength = 10
+	weapon_tier = 1
+	weapon_level = 0
+	armor_tier = 1
+	armor_level = 0
+	won = false
 	healing_left = 0
+	ooze_left = 0
 	turns = 0
 	_build_floor()
 	message = "1층 하수도. 계단을 찾으세요."
@@ -72,8 +102,34 @@ func _build_floor() -> void:
 	rooms.clear()
 	mobs.clear()
 	potions.clear()
+	items.clear()
 
-	# Each room is connected to the previous one, so the exit remains reachable.
+	if depth == 26:
+		_build_final_layout()
+	elif SpdCampaign.boss(depth) != "":
+		_build_boss_layout()
+	else:
+		_build_regular_layout()
+
+	_mark_doors()
+	_paint_terrain()
+	if SpdCampaign.boss(depth) != "":
+		_decorate_boss_arena()
+	hero = _room_center(rooms.front())
+	stairs = _room_center(rooms.back())
+	tiles[_index(hero)] = ENTRANCE
+	tiles[_index(stairs)] = EXIT if depth < 26 else FLOOR
+	if depth == 26:
+		items.append({"kind": "amulet", "pos": stairs, "tier": 0})
+	elif SpdCampaign.boss(depth) == "":
+		_place_floor_items()
+	_reveal()
+	_spawn_mobs()
+
+
+func _build_regular_layout() -> void:
+	# This room placer is still provisional. Later work ports the Java builders.
+	# Each room links to the previous one; occasional i -> i+2 links make loops.
 	for attempt in range(180):
 		var size := Vector2i(rng.randi_range(5, 8), rng.randi_range(5, 8))
 		var position := Vector2i(
@@ -105,24 +161,89 @@ func _build_floor() -> void:
 		_carve_room(last)
 		_carve_corridor(_room_center(first), _room_center(last))
 		rooms.append_array([first, last])
+	for room_index in range(rooms.size() - 2):
+		if rng.randi_range(0, 3) == 0:
+			_carve_corridor(_room_center(rooms[room_index]),
+				_room_center(rooms[room_index + 2]))
 
-	_mark_doors()
-	_paint_terrain()
-	hero = _room_center(rooms.front())
-	stairs = _room_center(rooms.back())
-	tiles[_index(hero)] = ENTRANCE
-	tiles[_index(stairs)] = EXIT
-	for room_index in range(1, rooms.size()):
-		var room := rooms[room_index]
+
+
+func _build_boss_layout() -> void:
+	# Compact entrance, arena, and exit keep a distinct fight space on each
+	# boss depth. Their detailed source builders remain to be ported.
+	rooms.append(Rect2i(2, 13, 7, 10))
+	rooms.append(Rect2i(11, 7, 16, 22))
+	rooms.append(Rect2i(29, 13, 5, 10))
+	for room in rooms:
+		_carve_room(room)
+	_carve_corridor(_room_center(rooms[0]), _room_center(rooms[1]))
+	_carve_corridor(_room_center(rooms[1]), _room_center(rooms[2]))
+
+
+func _build_final_layout() -> void:
+	rooms.append(Rect2i(5, 14, 8, 9))
+	rooms.append(Rect2i(20, 10, 11, 17))
+	for room in rooms:
+		_carve_room(room)
+	_carve_corridor(_room_center(rooms[0]), _room_center(rooms[1]))
+
+
+func _decorate_boss_arena() -> void:
+	var center := _room_center(rooms[1])
+	match depth:
+		5:
+			for direction in DIRS8:
+				tiles[_index(center + direction * 2)] = WATER
+		10:
+			for offset in [Vector2i(-4, -4), Vector2i(4, -4),
+					Vector2i(-4, 4), Vector2i(4, 4)]:
+				tiles[_index(center + offset)] = WALL_DECO
+		15:
+			for offset in [Vector2i(-5, -6), Vector2i(5, -6),
+					Vector2i(-5, 6), Vector2i(5, 6)]:
+				tiles[_index(center + offset)] = WALL_DECO
+		20:
+			for x in range(center.x - 3, center.x + 4):
+				for y in range(center.y - 2, center.y + 3):
+					tiles[_index(Vector2i(x, y))] = FLOOR_DECO
+		25:
+			for offset in [Vector2i(-4, -5), Vector2i(4, -5),
+					Vector2i(-4, 5), Vector2i(4, 5)]:
+				tiles[_index(center + offset)] = WALL_DECO
+	tiles[_index(center)] = FLOOR
+
+
+func _place_floor_items() -> void:
+	# Guaranteed progression drops while the original item generator is ported.
+	# Placement stays out of the entrance, exit, and closed doors.
+	for room_index in range(1, rooms.size() - 1):
+		var cell := _room_center(rooms[room_index])
 		if room_index == 2 or room_index == 5:
-			var potion_pos := _room_center(room) + Vector2i(1, 0)
-			if potion_pos != stairs:
-				potions.append(potion_pos)
-	_reveal()
-	_spawn_mobs()
+			potions.append(cell)
+		elif room_index == 3:
+			items.append({"kind": "food", "pos": cell, "tier": 0})
+		elif room_index == 4:
+			items.append({"kind": "upgrade", "pos": cell, "tier": 0})
+		elif room_index == 6 and (depth % 5 == 1 or depth % 5 == 3):
+			items.append({"kind": "strength", "pos": cell, "tier": 0})
+		elif room_index == 7:
+			items.append({"kind": "weapon", "pos": cell,
+				"tier": mini(5, 1 + int(depth / 5))})
+		elif room_index == 8:
+			items.append({"kind": "armor", "pos": cell,
+				"tier": mini(5, 1 + int(depth / 5))})
+	if depth >= 3:
+		items.append({"kind": "wand", "pos": _room_center(rooms[1]), "tier": 0})
 
 
 func _spawn_mobs() -> void:
+	if depth == 26:
+		return
+	var boss_kind := SpdCampaign.boss(depth)
+	if boss_kind != "":
+		var boss_cell := _room_center(rooms[int(rooms.size() / 2)])
+		_spawn_mob(boss_kind, boss_cell)
+		return
 	# RegularLevel.createMobs presets eight enemies on depth 1. MobSpawner's
 	# sewer rotations are selected by depth and reshuffled when exhausted.
 	# Rare alternates and exact standard-room weighting remain to be ported.
@@ -137,7 +258,7 @@ func _spawn_mobs() -> void:
 						and maxi(absi(cell.x - hero.x), absi(cell.y - hero.y)) > 8:
 					candidates.append(cell)
 	var count := 8 if depth == 1 else 3 + depth % 5 + rng.randi_range(0, 2)
-	var rotation := _mob_rotation()
+	var rotation := SpdCampaign.rotation(depth)
 	var rotation_index := 0
 	while mobs.size() < count and not candidates.is_empty():
 		if rotation_index == 0:
@@ -151,32 +272,32 @@ func _spawn_mobs() -> void:
 		candidates.remove_at(index)
 		if _mob_index_at(cell) < 0:
 			var kind: String = rotation[rotation_index]
-			var actor_id := next_actor_id
-			next_actor_id += 1
-			mobs.append({"id": actor_id, "kind": kind, "pos": cell, "hp": SpdCombat.mob_hp(kind),
-				"state": "sleeping", "enemy_seen": false, "target": cell})
-			clock.add(actor_id, SpdActorClock.MOB_PRIORITY)
-			_trample(cell)
+			_spawn_mob(kind, cell)
 			rotation_index = (rotation_index + 1) % rotation.size()
 
 
-func _mob_rotation() -> Array[String]:
-	match depth:
-		1:
-			return ["rat", "rat", "rat", "snake"]
-		2:
-			return ["rat", "rat", "snake", "gnoll", "gnoll"]
-		3:
-			return ["rat", "snake", "gnoll", "gnoll", "gnoll", "swarm", "crab"]
-		_:
-			return ["gnoll", "swarm", "crab", "crab", "slime", "slime"]
+func _spawn_mob(kind: String, cell: Vector2i) -> void:
+	var actor_id := next_actor_id
+	next_actor_id += 1
+	mobs.append({"id": actor_id, "kind": kind, "pos": cell,
+		"hp": SpdCombat.mob_hp(kind), "state": "sleeping",
+		"enemy_seen": false, "target": cell, "charge": 0})
+	clock.add(actor_id, SpdActorClock.MOB_PRIORITY)
+	_trample(cell)
 
 
 func _paint_terrain() -> void:
 	# SewerLevel.painter() uses 30% water with five smoothing passes and
 	# 20% grass with four passes. Current rooms are still provisional.
-	var water: PackedByteArray = SpdPatch.generate(rng, WIDTH, HEIGHT, 0.30, 5, true)
-	var grass: PackedByteArray = SpdPatch.generate(rng, WIDTH, HEIGHT, 0.20, 4, true)
+	var region := SpdCampaign.region(depth)
+	var water_rates := [0.30, 0.30, 0.30, 0.30, 0.15]
+	var grass_rates := [0.20, 0.20, 0.15, 0.20, 0.10]
+	var water_passes := [5, 4, 6, 4, 6]
+	var grass_passes := [4, 3, 3, 3, 3]
+	var water: PackedByteArray = SpdPatch.generate(rng, WIDTH, HEIGHT,
+		0.50 if depth == 5 else water_rates[region], water_passes[region], true)
+	var grass: PackedByteArray = SpdPatch.generate(rng, WIDTH, HEIGHT,
+		grass_rates[region], grass_passes[region], true)
 	for room in rooms:
 		for y in range(room.position.y, room.end.y):
 			for x in range(room.position.x, room.end.x):
@@ -315,7 +436,7 @@ func _mob_index_at(p: Vector2i) -> int:
 
 
 func step(direction: Vector2i) -> bool:
-	if hp <= 0 or direction == Vector2i.ZERO:
+	if hp <= 0 or won or direction == Vector2i.ZERO:
 		return false
 	if absi(direction.x) > 1 or absi(direction.y) > 1:
 		return false
@@ -328,7 +449,9 @@ func step(direction: Vector2i) -> bool:
 		var mob: Dictionary = mobs[mob_index]
 		var kind: String = mob["kind"]
 		var name := _mob_name(kind)
-		var strike: Dictionary = SpdCombat.warrior_attacks_mob(rng, kind, not mob["enemy_seen"])
+		var strike: Dictionary = SpdCombat.hero_attacks_mob(rng, kind,
+			not mob["enemy_seen"], level, _weapon_min(), _weapon_max(),
+			strength, _gear_requirement(weapon_tier, weapon_level))
 		if not strike["hit"]:
 			message = "공격이 빗나갔습니다."
 		else:
@@ -339,6 +462,7 @@ func step(direction: Vector2i) -> bool:
 				if mob.has("id"):
 					clock.remove(int(mob["id"]))
 				mobs.remove_at(mob_index)
+				_gain_experience(kind)
 				message = "%s을(를) 쓰러뜨렸습니다." % name
 			else:
 				mob["state"] = "hunting"
@@ -350,6 +474,9 @@ func step(direction: Vector2i) -> bool:
 		tiles[_index(target)] = OPEN_DOOR
 		message = "문을 열었습니다."
 	else:
+		if target == stairs and SpdCampaign.boss(depth) != "" and not mobs.is_empty():
+			message = "보스를 쓰러뜨려야 계단을 이용할 수 있습니다."
+			return false
 		hero = target
 		_trample(hero)
 		message = "이동했습니다."
@@ -357,32 +484,167 @@ func step(direction: Vector2i) -> bool:
 			potions.erase(hero)
 			potion_count += 1
 			message = "회복 물약을 주웠습니다."
+		_pickup_items()
+		if won:
+			return true
 		if hero == stairs:
 			depth += 1
 			_build_floor()
-			message = "%d층으로 내려왔습니다." % depth
+			message = "%d층 %s에 내려왔습니다." % [depth, SpdCampaign.region_name(depth)]
 			return true
 	_advance_turn()
 	return true
 
 
 func wait_turn() -> void:
-	if hp <= 0:
+	if hp <= 0 or won:
 		return
 	message = "잠시 기다립니다."
 	_advance_turn()
 
 
 func drink_potion() -> bool:
-	if hp <= 0 or potion_count <= 0 or hp >= max_hp:
+	if hp <= 0 or won or potion_count <= 0 or hp >= max_hp:
 		message = "지금은 물약을 쓸 수 없습니다."
 		return false
 	potion_count -= 1
 	# PotionOfHealing heals 0.8 * HT + 14 over time via Healing.act().
 	healing_left = maxi(healing_left, int(0.8 * max_hp + 14))
+	ooze_left = 0
 	message = "회복 물약을 마셨습니다."
 	_advance_turn()
 	return true
+
+
+func eat_food() -> bool:
+	if hp <= 0 or won or food_count <= 0:
+		message = "먹을 식량이 없습니다."
+		return false
+	food_count -= 1
+	hunger = maxi(0, hunger - 300)
+	message = "식량을 먹었습니다."
+	for _turn in range(3):
+		if hp > 0:
+			_advance_turn()
+	return true
+
+
+func upgrade_weapon() -> bool:
+	if hp <= 0 or won or upgrade_count <= 0:
+		message = "강화 주문서가 없습니다."
+		return false
+	upgrade_count -= 1
+	weapon_level += 1
+	message = "무기를 강화했습니다 (+%d)." % weapon_level
+	_advance_turn()
+	return true
+
+
+func upgrade_armor() -> bool:
+	if hp <= 0 or won or upgrade_count <= 0:
+		message = "강화 주문서가 없습니다."
+		return false
+	upgrade_count -= 1
+	armor_level += 1
+	message = "갑옷을 강화했습니다 (+%d)." % armor_level
+	_advance_turn()
+	return true
+
+
+func zap(target: Vector2i) -> bool:
+	if hp <= 0 or won or wand_charges <= 0 or not is_visible(target):
+		message = "지팡이를 사용할 수 없습니다."
+		return false
+	if maxi(absi(target.x - hero.x), absi(target.y - hero.y)) > SIGHT_RADIUS:
+		message = "사거리 밖입니다."
+		return false
+	var mob_index := _mob_index_at(target)
+	if mob_index < 0:
+		message = "적을 선택하세요."
+		return false
+	wand_charges -= 1
+	var mob: Dictionary = mobs[mob_index]
+	var damage := SpdCombat.normal_int_range(rng, 5 + level, 9 + level * 2)
+	mob["hp"] = int(mob["hp"]) - damage
+	if int(mob["hp"]) <= 0:
+		clock.remove(int(mob["id"]))
+		mobs.remove_at(mob_index)
+		_gain_experience(mob["kind"])
+		message = "%s을(를) 마법으로 쓰러뜨렸습니다." % _mob_name(mob["kind"])
+	else:
+		mob["state"] = "hunting"
+		mob["enemy_seen"] = true
+		mob["target"] = hero
+		mobs[mob_index] = mob
+		message = "%s에게 마법 피해 %d." % [_mob_name(mob["kind"]), damage]
+	_advance_turn()
+	return true
+
+
+func _weapon_min() -> int:
+	return weapon_tier + weapon_level
+
+
+func _weapon_max() -> int:
+	return 5 * (weapon_tier + 1) + weapon_level * (weapon_tier + 1)
+
+
+func _armor_max() -> int:
+	return armor_tier * (2 + armor_level)
+
+
+func _armor_min() -> int:
+	return armor_level - _armor_max() if armor_level >= _armor_max() else armor_level
+
+
+func _gear_requirement(tier: int, item_level: int) -> int:
+	return 8 + 2 * tier - int((sqrt(8.0 * maxi(0, item_level) + 1.0) - 1.0) / 2.0)
+
+
+func _gain_experience(kind: String) -> void:
+	var stats: Dictionary = SpdCombat.MOB_STATS.get(kind, {})
+	if level > int(stats.get("max_lvl", 30)):
+		return
+	experience += int(stats.get("exp", 0))
+	while level < 30 and experience >= 5 + level * 5:
+		experience -= 5 + level * 5
+		level += 1
+		max_hp += 5
+		hp += 5
+
+
+func _pickup_items() -> void:
+	for index in range(items.size() - 1, -1, -1):
+		var item: Dictionary = items[index]
+		if item["pos"] != hero:
+			continue
+		match item["kind"]:
+			"food":
+				food_count += 1
+				message = "식량을 주웠습니다."
+			"upgrade":
+				upgrade_count += 1
+				message = "강화 주문서를 주웠습니다."
+			"strength":
+				strength += 1
+				message = "힘의 물약을 마셨습니다. 힘 %d." % strength
+			"weapon":
+				if int(item["tier"]) > weapon_tier:
+					weapon_tier = int(item["tier"])
+					weapon_level = 0
+				message = "새 무기를 장착했습니다."
+			"armor":
+				if int(item["tier"]) > armor_tier:
+					armor_tier = int(item["tier"])
+					armor_level = 0
+				message = "새 갑옷을 장착했습니다."
+			"wand":
+				wand_charges += 3
+				message = "마법 지팡이를 주웠습니다."
+			"amulet":
+				won = true
+				message = "옌더의 부적을 찾았습니다! 던전을 정복했습니다."
+		items.remove_at(index)
 
 
 func _advance_turn() -> void:
@@ -391,9 +653,38 @@ func _advance_turn() -> void:
 	_run_actors_until_hero()
 	if hp > 0:
 		_heal_tick()
+		_ooze_tick()
+		_hunger_tick()
 	_reveal()
 	if hp <= 0:
 		message = "%d층에서 쓰러졌습니다. 새 게임을 눌러 재시작하세요." % depth
+
+
+func _hunger_tick() -> void:
+	if SpdCampaign.boss(depth) != "" and not mobs.is_empty():
+		return
+	if hunger < 450:
+		hunger += 1
+		if hunger == 450:
+			hp = maxi(0, hp - 1)
+			message += " 굶주리기 시작합니다."
+	elif hp > 0:
+		hunger_damage += max_hp / 1000.0
+		if hunger_damage >= 1.0:
+			var damage := int(hunger_damage)
+			hp = maxi(0, hp - damage)
+			hunger_damage -= damage
+
+
+func _ooze_tick() -> void:
+	if ooze_left <= 0:
+		return
+	if tile_at(hero) == WATER:
+		ooze_left = 0
+		message += " 물이 점액을 씻어냈습니다."
+		return
+	hp = maxi(0, hp - (1 if depth <= 5 else 1 + int(depth / 5)))
+	ooze_left -= 1
 
 
 func _heal_tick() -> void:
@@ -416,7 +707,7 @@ func _run_actors_until_hero() -> void:
 			clock.remove(actor_id)
 			continue
 		_mob_act(index, _blocking_map())
-		var speed := 2.0 if mobs[index]["kind"] == "crab" else 1.0
+		var speed := 2.0 if ["crab", "thief", "monk"].has(mobs[index]["kind"]) else 1.0
 		clock.spend(actor_id, 1.0 / speed)
 		if hp <= 0:
 			return
@@ -433,6 +724,9 @@ func _mob_index_by_id(actor_id: int) -> int:
 func _mob_act(i: int, blocking: PackedByteArray) -> void:
 	var mob: Dictionary = mobs[i]
 	var pos: Vector2i = mob["pos"]
+	if mob["kind"] == "goo" and tile_at(pos) == WATER and int(mob["hp"]) < SpdCombat.mob_hp("goo"):
+		mob["hp"] = int(mob["hp"]) + 1
+		mobs[i] = mob
 	var distance := maxi(absi(pos.x - hero.x), absi(pos.y - hero.y))
 	var mob_fov: PackedByteArray = ShadowCaster.cast_shadow(pos, WIDTH, HEIGHT, blocking, SIGHT_RADIUS)
 	var sees_hero := mob_fov[_index(hero)] != 0
@@ -448,15 +742,38 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 	if sees_hero:
 		mob["state"] = "hunting"
 		mob["target"] = hero
-	if distance <= 1 and sees_hero:
-		var strike: Dictionary = SpdCombat.mob_attacks_warrior(rng, mob["kind"])
-		var name := _mob_name(mob["kind"])
-		if strike["hit"]:
-			hp = maxi(0, hp - int(strike["damage"]))
-			message += " %s에게 %d 피해를 받았습니다." % [name, strike["damage"]]
+	if mob["kind"] == "goo" and int(mob.get("charge", 0)) > 0:
+		var charge := int(mob["charge"])
+		if distance > 2 or not sees_hero:
+			mob["charge"] = 0
+			mobs[i] = mob
+		elif charge == 1:
+			mob["charge"] = 2
+			mobs[i] = mob
+			message += " 구가 크게 부풀어 오릅니다!"
+			return
 		else:
-			message += " %s의 공격이 빗나갔습니다." % name
+			mob["charge"] = 0
+			mobs[i] = mob
+			_mob_strike(mob, true)
+			return
+	if distance <= 1 and sees_hero:
+		if mob["kind"] == "goo" and rng.randi_range(0, 4) == 0:
+			mob["charge"] = 1
+			message += " 구가 부풀어 오릅니다!"
+		else:
+			_mob_strike(mob)
 		mobs[i] = mob
+		return
+	if sees_hero and distance <= 4 and ["dm100", "shaman", "warlock", "eye", "scorpio", "tengu"].has(mob["kind"]):
+		if mob["kind"] == "eye" and int(mob.get("charge", 0)) == 0:
+			mob["charge"] = 1
+			mobs[i] = mob
+			message += " 사악한 눈이 광선을 충전합니다!"
+			return
+		mob["charge"] = 0
+		mobs[i] = mob
+		_mob_strike(mob)
 		return
 	var goal: Vector2i = mob["target"]
 	if pos == goal:
@@ -474,6 +791,31 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 	mob["pos"] = best
 	_trample(best)
 	mobs[i] = mob
+
+
+func _mob_strike(mob: Dictionary, pumped: bool = false) -> void:
+	var kind: String = mob["kind"]
+	var armor_encumbrance := maxi(0, _gear_requirement(armor_tier, armor_level) - strength)
+	var defense := maxi(1, roundi((SpdCombat.HERO_DEFENSE_SKILL + level - 1) \
+		/ pow(1.5, armor_encumbrance)))
+	var armor_min := maxi(0, _armor_min() - armor_encumbrance * 2)
+	var armor_max := maxi(0, _armor_max() - armor_encumbrance * 2)
+	var strike: Dictionary
+	if kind == "goo":
+		strike = SpdCombat.goo_attacks_hero(rng, int(mob["hp"]), defense,
+			armor_min, armor_max, pumped)
+	else:
+		strike = SpdCombat.mob_attacks_hero(rng, kind, level,
+			armor_max, 0, 1, armor_min, defense)
+	var name := _mob_name(kind)
+	if strike["hit"]:
+		hp = maxi(0, hp - int(strike["damage"]))
+		message += " %s에게 %d 피해를 받았습니다." % [name, strike["damage"]]
+		if kind == "goo" and rng.randi_range(0, 2) == 0:
+			ooze_left = 20
+			message += " 검은 점액이 묻었습니다."
+	else:
+		message += " %s의 공격이 빗나갔습니다." % name
 
 
 func _split_swarm(index: int, damage: int) -> void:
@@ -507,6 +849,29 @@ static func _mob_name(kind: String) -> String:
 		"swarm": return "파리떼"
 		"crab": return "게"
 		"slime": return "슬라임"
+		"goo": return "구"
+		"skeleton": return "해골"
+		"thief": return "도둑"
+		"dm100": return "DM-100"
+		"guard": return "간수"
+		"necromancer": return "강령술사"
+		"tengu": return "텐구"
+		"bat": return "흡혈박쥐"
+		"brute": return "놀 야만인"
+		"shaman": return "놀 주술사"
+		"spinner": return "거미"
+		"dm200": return "DM-200"
+		"dm300": return "DM-300"
+		"ghoul": return "구울"
+		"elemental": return "정령"
+		"warlock": return "흑마법사"
+		"monk": return "수도승"
+		"golem": return "골렘"
+		"king": return "드워프 왕"
+		"succubus": return "서큐버스"
+		"eye": return "사악한 눈"
+		"scorpio": return "전갈"
+		"yog": return "요그제바"
 		_: return "쥐"
 
 
@@ -541,10 +906,15 @@ func snapshot() -> Dictionary:
 	for mob in mobs:
 		saved_mobs.append({"id": mob.get("id", -1), "kind": mob["kind"],
 			"pos": _vector_data(mob["pos"]), "hp": mob["hp"], "state": mob["state"],
-			"enemy_seen": mob["enemy_seen"], "target": _vector_data(mob["target"])})
+			"enemy_seen": mob["enemy_seen"], "target": _vector_data(mob["target"]),
+			"charge": mob.get("charge", 0)})
 	var saved_potions: Array = []
 	for potion in potions:
 		saved_potions.append(_vector_data(potion))
+	var saved_items: Array = []
+	for item in items:
+		saved_items.append({"kind": item["kind"], "pos": _vector_data(item["pos"]),
+			"tier": item.get("tier", 0)})
 	var saved_tiles: Array = []
 	for tile in tiles:
 		saved_tiles.append(tile)
@@ -553,9 +923,17 @@ func snapshot() -> Dictionary:
 		saved_explored.append(bit)
 	return {"map_size": [WIDTH, HEIGHT], "tiles": saved_tiles, "explored": saved_explored,
 		"rooms": saved_rooms, "mobs": saved_mobs, "potions": saved_potions,
+		"items": saved_items,
 		"hero": _vector_data(hero), "stairs": _vector_data(stairs),
 		"depth": depth, "hp": hp, "max_hp": max_hp,
 		"potion_count": potion_count, "healing_left": healing_left,
+		"ooze_left": ooze_left,
+		"food_count": food_count, "upgrade_count": upgrade_count,
+		"wand_charges": wand_charges,
+		"hunger": hunger, "hunger_damage": hunger_damage,
+		"level": level, "experience": experience, "strength": strength,
+		"weapon_tier": weapon_tier, "weapon_level": weapon_level,
+		"armor_tier": armor_tier, "armor_level": armor_level, "won": won,
 		"turns": turns, "message": message, "rng": rng.state_snapshot(),
 		"clock": clock.snapshot(), "next_actor_id": next_actor_id}
 
@@ -571,17 +949,18 @@ func restore_snapshot(saved: Dictionary) -> bool:
 	var saved_rooms = saved.get("rooms")
 	var saved_mobs = saved.get("mobs")
 	var saved_potions = saved.get("potions")
+	var saved_items = saved.get("items", [])
 	if typeof(saved_tiles) != TYPE_ARRAY or saved_tiles.size() != WIDTH * HEIGHT \
 			or typeof(saved_explored) != TYPE_ARRAY or saved_explored.size() != WIDTH * HEIGHT \
 			or typeof(saved_rooms) != TYPE_ARRAY or typeof(saved_mobs) != TYPE_ARRAY \
-			or typeof(saved_potions) != TYPE_ARRAY:
+			or typeof(saved_potions) != TYPE_ARRAY or typeof(saved_items) != TYPE_ARRAY:
 		return false
 	if not _valid_saved_vector(saved.get("hero")) or not _valid_saved_vector(saved.get("stairs")):
 		return false
 	for key in ["depth", "hp", "max_hp", "potion_count", "healing_left", "turns", "next_actor_id"]:
 		if not _is_saved_int(saved.get(key)):
 			return false
-	if saved["depth"] < 1 or saved["max_hp"] < 1 or saved["hp"] < 0 \
+	if saved["depth"] < 1 or saved["depth"] > 26 or saved["max_hp"] < 1 or saved["hp"] < 0 \
 			or saved["hp"] > saved["max_hp"] or saved["potion_count"] < 0 \
 			or saved["healing_left"] < 0 or saved["turns"] < 0 or saved["next_actor_id"] < 1:
 		return false
@@ -615,6 +994,7 @@ func restore_snapshot(saved: Dictionary) -> bool:
 		if typeof(value) != TYPE_DICTIONARY or not SpdCombat.MOB_STATS.has(value.get("kind")) \
 				or not _valid_saved_vector(value.get("pos")) or not _valid_saved_vector(value.get("target")) \
 				or not _is_saved_int(value.get("id")) or not _is_saved_int(value.get("hp")) \
+				or not _is_saved_int(value.get("charge", 0)) \
 				or typeof(value.get("enemy_seen")) != TYPE_BOOL \
 				or not ["sleeping", "hunting", "wandering"].has(value.get("state")):
 			return false
@@ -624,12 +1004,36 @@ func restore_snapshot(saved: Dictionary) -> bool:
 		ids[int(value["id"])] = true
 		restored_mobs.append({"id": int(value["id"]), "kind": value["kind"],
 			"pos": _data_vector(value["pos"]), "hp": int(value["hp"]), "state": value["state"],
-			"enemy_seen": value["enemy_seen"], "target": _data_vector(value["target"])})
+			"enemy_seen": value["enemy_seen"], "target": _data_vector(value["target"]),
+			"charge": int(value.get("charge", 0))})
 	var restored_potions: Array[Vector2i] = []
 	for value in saved_potions:
 		if not _valid_saved_vector(value):
 			return false
 		restored_potions.append(_data_vector(value))
+	var restored_items: Array[Dictionary] = []
+	for value in saved_items:
+		if typeof(value) != TYPE_DICTIONARY or not ["food", "upgrade", "strength",
+				"weapon", "armor", "wand", "amulet"].has(value.get("kind")) \
+				or not _valid_saved_vector(value.get("pos")) \
+				or not _is_saved_int(value.get("tier")):
+			return false
+		if value["tier"] < 0 or value["tier"] > 5:
+			return false
+		restored_items.append({"kind": value["kind"], "pos": _data_vector(value["pos"]),
+			"tier": int(value["tier"])})
+	var progress_keys := ["food_count", "upgrade_count", "wand_charges",
+		"ooze_left",
+		"hunger", "level", "experience", "strength",
+		"weapon_tier", "weapon_level", "armor_tier", "armor_level"]
+	for key in progress_keys:
+		if saved.has(key) and (not _is_saved_int(saved[key]) or saved[key] < 0):
+			return false
+	if saved.has("hunger_damage") and (typeof(saved["hunger_damage"]) != TYPE_FLOAT \
+			and typeof(saved["hunger_damage"]) != TYPE_INT):
+		return false
+	if saved.has("won") and typeof(saved["won"]) != TYPE_BOOL:
+		return false
 	if not rng.restore_state(saved["rng"]) or not clock.restore(saved["clock"]) \
 			or not clock.has(0):
 		return false
@@ -643,6 +1047,7 @@ func restore_snapshot(saved: Dictionary) -> bool:
 	rooms = restored_rooms
 	mobs = restored_mobs
 	potions = restored_potions
+	items = restored_items
 	hero = _data_vector(saved["hero"])
 	stairs = _data_vector(saved["stairs"])
 	depth = int(saved["depth"])
@@ -650,6 +1055,20 @@ func restore_snapshot(saved: Dictionary) -> bool:
 	max_hp = int(saved["max_hp"])
 	potion_count = int(saved["potion_count"])
 	healing_left = int(saved["healing_left"])
+	ooze_left = int(saved.get("ooze_left", 0))
+	food_count = int(saved.get("food_count", 1))
+	upgrade_count = int(saved.get("upgrade_count", 0))
+	wand_charges = int(saved.get("wand_charges", 0))
+	hunger = int(saved.get("hunger", 0))
+	hunger_damage = float(saved.get("hunger_damage", 0.0))
+	level = int(saved.get("level", 1))
+	experience = int(saved.get("experience", 0))
+	strength = int(saved.get("strength", 10))
+	weapon_tier = int(saved.get("weapon_tier", 1))
+	weapon_level = int(saved.get("weapon_level", 0))
+	armor_tier = int(saved.get("armor_tier", 1))
+	armor_level = int(saved.get("armor_level", 0))
+	won = saved.get("won", false)
 	turns = int(saved["turns"])
 	message = saved["message"]
 	next_actor_id = int(saved["next_actor_id"])

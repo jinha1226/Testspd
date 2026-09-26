@@ -69,6 +69,15 @@ jobs:
           "$GODOT_BIN" --headless --path . --script res://tests/campaign.gd 2>&1 | tee campaign.log
           grep -Fq 'SPD campaign passed' campaign.log
 
+      - name: Verify regular mob placement and respawning
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/regular_spawner.gd 2>&1 | tee regular_spawner.log
+          grep -Fq 'SPD regular spawn placement passed' regular_spawner.log
+          "$GODOT_BIN" --headless --path . --script res://tests/respawner.gd 2>&1 | tee respawner.log
+          grep -Fq 'SPD respawner passed' respawner.log
+
       - name: Verify resume and autosave UI
         shell: bash
         run: |

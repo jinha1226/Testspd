@@ -11,7 +11,7 @@
 | `watabou/utils/Random.NormalIntRange`, `actors/Char.hit`·`attack` | `spd_combat.gd` | 삼각 분포 피해·방어 굴림, 명중 대 회피 굴림, `max(피해-방어, 0)`. 상태 효과·장비 강화·특성은 미포함. |
 | `actors/hero/Hero.java`, `items/weapon/melee/MeleeWeapon.java`, `items/armor/Armor.java` | `spd_combat.gd`, `run.gd` | HP 20에서 레벨당 5 증가, 경험치 요구량 `5 + 5 × 레벨`, 명중·회피 레벨 증가, 기본 무기 피해·방어 및 힘 요구치 공식. 직업·특성·개별 무기 특성은 미포함. |
 | `actors/mobs`의 기본 적·보스 클래스 | `spd_combat.gd`, `run.gd` | 메인 던전 일반 적 24종과 보스 5종의 기본 HP·명중·회피·피해 범위·방어·EXP 데이터를 바탕으로 전투. 강령술사처럼 기본 근접 공격이 없는 적에는 임시 값을 사용하며, 다수의 특수 능력과 원본 공격 패턴은 아직 없음. |
-| `actors/mobs/MobSpawner.java`, `levels/RegularLevel.createMobs` | `spd_campaign.gd`, `run.gd` | 1~24층의 원본 일반 적 로테이션, 1층 시작 적 8마리, 지역별 타일 선택. 희귀 변종, 정확한 방 가중치·재생성 조건은 미포함. |
+| `actors/mobs/MobSpawner.java`, `levels/RegularLevel.createMobs`, `watabou/utils/PathFinder.buildDistanceMap` | `spd_campaign.gd`, `spd_regular_spawner.gd`, `run.gd` | 1~24층의 기본 적 로테이션, 1층 적 8마리, 표준 방 순서 섞기·방 내부 31회 재시도·입구 시야 및 도보 8칸 제외·같은 방의 두 번째 적 25% 확률. 일반층 50턴 재생성, 영웅 시야·도보 12칸 제외, 배회 상태와 저장/재개도 대응. 방 종류·크기별 가중치, 희귀 변종·챔피언, 암흑층과 부적 획득 후 주기 변화는 미이식. |
 | `Dungeon.newLevel`, `levels/*BossLevel`, `LastLevel` | `spd_campaign.gd`, `run.gd` | 메인 1~26층 지역 구분, 5층 간격 보스 계단 잠금, 26층 부적 승리. 전용 보스층 구조는 단순화한 전투 공간이고 분기층은 미이식. |
 | `actors/mobs/Goo.java`, `actors/buffs/Ooze.java` | `spd_combat.gd`, `run.gd` | 구의 체력 100, 충전 경고 두 번 후 3배 피해, 절반 이하 HP의 명중·피해 변화, 물 위 회복, 1/3 확률 점액과 물·회복 물약 해제. 정확한 거리·투사체·행동 우선순위는 미이식. |
 | `actors/mobs/Mob.Sleeping` | `run.gd` | 적 시야와 거리별 감지 확률 `1 / distance`를 적용. 수면 이후 배회·추적·시간 스케줄링은 임시 구현. |
@@ -23,4 +23,4 @@
 
 `run.gd`의 방·복도 생성은 아직 원본 `RegularLevel`·`LoopBuilder`·`FigureEightBuilder`가 아닌 임시 배치입니다. 5개 지역의 기본 편성과 보스·최종층을 방문할 수 있지만, 특수 방·상점·분기층·함정·퀘스트·원본 전리품 생성은 없습니다. 구 이외의 보스는 HP와 기본 공격 중심의 임시 전투이며, 원본의 페이즈·소환·기믹은 구현되지 않았습니다. 직업·특성·장비 개별 효과·상태 효과 대부분도 미이식입니다. 따라서 1~26층 진행 가능 여부와 전체 SPD 게임플레이 완성 여부를 동일하게 취급하면 안 됩니다.
 
-난수 생성기 자체는 Java의 고정 시드 출력과 일치합니다. 지도는 아직 원본 방 생성기와 난수 호출 순서를 사용하지 않으므로 같은 숫자 시드로 같은 지도가 나오지는 않습니다. 현재 테스트는 난수 시퀀스·행동 순서·경로 탐색·저장 재개, 3개 시드의 26층 연결성과 지역 적·보스 배치, 기본 성장·식량·점액·승리를 확인합니다.
+난수 생성기 자체는 Java의 고정 시드 출력과 일치합니다. 지도는 아직 원본 방 생성기와 난수 호출 순서를 사용하지 않으므로 같은 숫자 시드로 같은 지도가 나오지는 않습니다. 현재 테스트는 난수 시퀀스·행동 순서·경로 탐색·저장 재개, 3개 시드의 26층 연결성과 지역 적·보스 배치, 기본 성장·식량·점액·승리, 64개 시드의 1층 적 배치 안전 거리, 일반층 적 재생성 주기와 저장 후 일치 여부를 확인합니다.

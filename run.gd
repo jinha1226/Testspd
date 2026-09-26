@@ -8,6 +8,7 @@ const SpdRandom = preload("res://spd_random.gd")
 const SpdActorClock = preload("res://spd_actor_clock.gd")
 const SpdPathFinder = preload("res://spd_pathfinder.gd")
 const SpdCampaign = preload("res://spd_campaign.gd")
+const SpdRegularSpawner = preload("res://spd_regular_spawner.gd")
 
 const WIDTH := 36
 const HEIGHT := 36
@@ -23,6 +24,8 @@ const HIGH_GRASS := 8
 const FLOOR_DECO := 9
 const WALL_DECO := 10
 const SIGHT_RADIUS := 8
+const RESPAWNER_ID := -2
+const RESPAWN_COOLDOWN := 50.0
 const DIRS8 := [
 	Vector2i(-1, -1), Vector2i(0, -1), Vector2i(1, -1),
 	Vector2i(-1, 0),                    Vector2i(1, 0),
@@ -62,6 +65,8 @@ var message := ""
 var rng = SpdRandom.new()
 var clock = SpdActorClock.new()
 var next_actor_id := 1
+var _mob_rotation: Array[String] = []
+var _mob_rotation_index := 0
 
 
 func start(seed_value: int = 0) -> void:
@@ -103,6 +108,8 @@ func _build_floor() -> void:
 	mobs.clear()
 	potions.clear()
 	items.clear()
+	_mob_rotation.clear()
+	_mob_rotation_index = 0
 
 	if depth == 26:
 		_build_final_layout()
@@ -125,6 +132,8 @@ func _build_floor() -> void:
 		_place_floor_items()
 	_reveal()
 	_spawn_mobs()
+	if depth < 26 and SpdCampaign.boss(depth) == "":
+		clock.add(RESPAWNER_ID, SpdActorClock.BUFF_PRIORITY, RESPAWN_COOLDOWN)
 
 
 func _build_regular_layout() -> void:
@@ -244,36 +253,28 @@ func _spawn_mobs() -> void:
 		var boss_cell := _room_center(rooms[int(rooms.size() / 2)])
 		_spawn_mob(boss_kind, boss_cell)
 		return
-	# RegularLevel.createMobs presets eight enemies on depth 1. MobSpawner's
-	# sewer rotations are selected by depth and reshuffled when exhausted.
-	# Rare alternates and exact standard-room weighting remain to be ported.
-	var candidates: Array[Vector2i] = []
-	for room_index in range(1, rooms.size()):
-		var room := rooms[room_index]
-		for y in range(room.position.y, room.end.y):
-			for x in range(room.position.x, room.end.x):
-				var cell := Vector2i(x, y)
-				if not is_wall_tile(tile_at(cell)) and tile_at(cell) != CLOSED_DOOR \
-						and cell != stairs and not is_visible(cell) \
-						and maxi(absi(cell.x - hero.x), absi(cell.y - hero.y)) > 8:
-					candidates.append(cell)
+	# RegularLevel.createMobs: shuffled standard rooms, entrance FOV and an
+	# eight-step open-space walk exclusion, with 31 random tries per room.
 	var count := 8 if depth == 1 else 3 + depth % 5 + rng.randi_range(0, 2)
-	var rotation := SpdCampaign.rotation(depth)
-	var rotation_index := 0
-	while mobs.size() < count and not candidates.is_empty():
-		if rotation_index == 0:
-			for shuffle_index in range(rotation.size() - 1, 0, -1):
-				var other_index := rng.randi_range(0, shuffle_index)
-				var current: String = rotation[shuffle_index]
-				rotation[shuffle_index] = rotation[other_index]
-				rotation[other_index] = current
-		var index := rng.randi_range(0, candidates.size() - 1)
-		var cell := candidates[index]
-		candidates.remove_at(index)
-		if _mob_index_at(cell) < 0:
-			var kind: String = rotation[rotation_index]
-			_spawn_mob(kind, cell)
-			rotation_index = (rotation_index + 1) % rotation.size()
+	_mob_rotation = SpdCampaign.rotation(depth)
+	_mob_rotation_index = 0
+	var placements: Array[Dictionary] = SpdRegularSpawner.positions(rng, WIDTH, HEIGHT,
+		tiles, rooms, hero, stairs, visible, count, depth,
+		[WALL, WALL_DECO], CLOSED_DOOR, _next_regular_mob_kind)
+	for placement in placements:
+		_spawn_mob(placement["kind"], placement["pos"])
+
+
+func _next_regular_mob_kind() -> String:
+	if _mob_rotation_index == 0:
+		for shuffle_index in range(_mob_rotation.size() - 1, 0, -1):
+			var other_index := rng.randi_range(0, shuffle_index)
+			var current: String = _mob_rotation[shuffle_index]
+			_mob_rotation[shuffle_index] = _mob_rotation[other_index]
+			_mob_rotation[other_index] = current
+	var kind: String = _mob_rotation[_mob_rotation_index]
+	_mob_rotation_index = (_mob_rotation_index + 1) % _mob_rotation.size()
+	return kind
 
 
 func _spawn_mob(kind: String, cell: Vector2i) -> void:
@@ -700,8 +701,11 @@ func _run_actors_until_hero() -> void:
 	# A bound prevents a broken actor from freezing the browser.
 	for event in range(4096):
 		var actor_id := clock.next_actor()
-		if actor_id == 0 or actor_id < 0 or hp <= 0:
+		if actor_id == 0 or actor_id == -1 or hp <= 0:
 			return
+		if actor_id == RESPAWNER_ID:
+			_respawner_act()
+			continue
 		var index := _mob_index_by_id(actor_id)
 		if index < 0:
 			clock.remove(actor_id)
@@ -712,6 +716,80 @@ func _run_actors_until_hero() -> void:
 		if hp <= 0:
 			return
 	push_error("actor clock exceeded 4096 actions before the hero")
+
+
+func _respawner_act() -> void:
+	# MobSpawner.act: a regular floor tries again after one turn if no safe
+	# cell exists, or waits Level.TIME_TO_RESPAWN (50 turns) otherwise.
+	var cooldown := RESPAWN_COOLDOWN
+	if depth > 1 and mobs.size() < 3 + depth % 5 + rng.next_int(3):
+		var kind := _next_regular_mob_kind()
+		var cell := _respawn_cell()
+		if cell != Vector2i(-1, -1):
+			_spawn_mob(kind, cell)
+			var mob: Dictionary = mobs.back()
+			mob["state"] = "wandering"
+			mobs[mobs.size() - 1] = mob
+		else:
+			cooldown = 1.0
+	clock.spend(RESPAWNER_ID, cooldown)
+
+
+func _respawn_cell() -> Vector2i:
+	# Level.spawnMob(12) also excludes tiles reachable within 11 steps of
+	# the hero. RegularLevel.randomRespawnCell samples standard room interiors.
+	var reachable := _distance_from_hero()
+	for _attempt in range(30):
+		for _room_try in range(30):
+			var room_index := rng.next_int(rooms.size())
+			if room_index == 0:
+				continue
+			var room: Rect2i = rooms[room_index]
+			var cell := Vector2i(
+				rng.randi_range(room.position.x + 1, room.end.x - 2),
+				rng.randi_range(room.position.y + 1, room.end.y - 2))
+			if is_visible(cell) or _mob_index_at(cell) >= 0 or cell == stairs \
+					or cell == hero or is_wall_tile(tile_at(cell)) \
+					or tile_at(cell) == CLOSED_DOOR:
+				continue
+			if reachable[_index(cell)] >= 12:
+				return cell
+			break
+	return Vector2i(-1, -1)
+
+
+func _distance_from_hero() -> PackedInt32Array:
+	var distance := PackedInt32Array()
+	distance.resize(WIDTH * HEIGHT)
+	distance.fill(2147483647)
+	var queue: Array[Vector2i] = [hero]
+	distance[_index(hero)] = 0
+	var head := 0
+	while head < queue.size():
+		var cell: Vector2i = queue[head]
+		head += 1
+		for direction in DIRS8:
+			var next: Vector2i = cell + direction
+			if not _inside(next) or is_wall_tile(tile_at(next)) \
+					or tile_at(next) == CLOSED_DOOR:
+				continue
+			var index := _index(next)
+			if distance[index] != 2147483647:
+				continue
+			distance[index] = distance[_index(cell)] + 1
+			queue.append(next)
+	return distance
+
+
+func _random_wander_destination() -> Vector2i:
+	for _attempt in range(30):
+		var room: Rect2i = rooms[rng.next_int(rooms.size())]
+		var cell := Vector2i(
+			rng.randi_range(room.position.x + 1, room.end.x - 2),
+			rng.randi_range(room.position.y + 1, room.end.y - 2))
+		if not is_wall_tile(tile_at(cell)) and tile_at(cell) != CLOSED_DOOR:
+			return cell
+	return hero
 
 
 func _mob_index_by_id(actor_id: int) -> int:
@@ -738,8 +816,13 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 			mob["target"] = hero
 			mobs[i] = mob
 		return
+	if mob["state"] == "wandering" and sees_hero:
+		# Mob.Wandering notices an unstealthed hero with 1/(distance/2).
+		if rng.randf() < minf(1.0, 2.0 / maxf(1.0, float(distance))):
+			mob["state"] = "hunting"
+			mob["target"] = hero
 	mob["enemy_seen"] = sees_hero
-	if sees_hero:
+	if sees_hero and mob["state"] == "hunting":
 		mob["state"] = "hunting"
 		mob["target"] = hero
 	if mob["kind"] == "goo" and int(mob.get("charge", 0)) > 0:
@@ -757,7 +840,7 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 			mobs[i] = mob
 			_mob_strike(mob, true)
 			return
-	if distance <= 1 and sees_hero:
+	if distance <= 1 and sees_hero and mob["state"] == "hunting":
 		if mob["kind"] == "goo" and rng.randi_range(0, 4) == 0:
 			mob["charge"] = 1
 			message += " 구가 부풀어 오릅니다!"
@@ -765,7 +848,8 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 			_mob_strike(mob)
 		mobs[i] = mob
 		return
-	if sees_hero and distance <= 4 and ["dm100", "shaman", "warlock", "eye", "scorpio", "tengu"].has(mob["kind"]):
+	if sees_hero and mob["state"] == "hunting" and distance <= 4 \
+			and ["dm100", "shaman", "warlock", "eye", "scorpio", "tengu"].has(mob["kind"]):
 		if mob["kind"] == "eye" and int(mob.get("charge", 0)) == 0:
 			mob["charge"] = 1
 			mobs[i] = mob
@@ -778,6 +862,7 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 	var goal: Vector2i = mob["target"]
 	if pos == goal:
 		mob["state"] = "wandering"
+		mob["target"] = _random_wander_destination()
 		mobs[i] = mob
 		return
 	var passable := _path_passability(false)
@@ -788,6 +873,8 @@ func _mob_act(i: int, blocking: PackedByteArray) -> void:
 	var best: Vector2i = SpdPathFinder.get_step(WIDTH, HEIGHT, pos, goal, passable)
 	if best == hero or _mob_index_at(best) >= 0:
 		best = pos
+	if best == pos and mob["state"] == "wandering":
+		mob["target"] = _random_wander_destination()
 	mob["pos"] = best
 	_trample(best)
 	mobs[i] = mob
@@ -935,7 +1022,9 @@ func snapshot() -> Dictionary:
 		"weapon_tier": weapon_tier, "weapon_level": weapon_level,
 		"armor_tier": armor_tier, "armor_level": armor_level, "won": won,
 		"turns": turns, "message": message, "rng": rng.state_snapshot(),
-		"clock": clock.snapshot(), "next_actor_id": next_actor_id}
+		"clock": clock.snapshot(), "next_actor_id": next_actor_id,
+		"mob_rotation": _mob_rotation.duplicate(),
+		"mob_rotation_index": _mob_rotation_index}
 
 
 func restore_snapshot(saved: Dictionary) -> bool:
@@ -1034,6 +1123,16 @@ func restore_snapshot(saved: Dictionary) -> bool:
 		return false
 	if saved.has("won") and typeof(saved["won"]) != TYPE_BOOL:
 		return false
+	var saved_rotation = saved.get("mob_rotation", [])
+	var saved_rotation_index = saved.get("mob_rotation_index", 0)
+	if typeof(saved_rotation) != TYPE_ARRAY or not _is_saved_int(saved_rotation_index):
+		return false
+	for kind in saved_rotation:
+		if typeof(kind) != TYPE_STRING or not SpdCombat.MOB_STATS.has(kind):
+			return false
+	if saved_rotation_index < 0 or (not saved_rotation.is_empty() \
+			and saved_rotation_index >= saved_rotation.size()):
+		return false
 	if not rng.restore_state(saved["rng"]) or not clock.restore(saved["clock"]) \
 			or not clock.has(0):
 		return false
@@ -1072,6 +1171,16 @@ func restore_snapshot(saved: Dictionary) -> bool:
 	turns = int(saved["turns"])
 	message = saved["message"]
 	next_actor_id = int(saved["next_actor_id"])
+	_mob_rotation.clear()
+	for kind in saved_rotation:
+		_mob_rotation.append(kind)
+	_mob_rotation_index = int(saved_rotation_index)
+	if _mob_rotation.is_empty() and depth < 26 and SpdCampaign.boss(depth) == "":
+		_mob_rotation = SpdCampaign.rotation(depth)
+		_mob_rotation_index = 0
+	if not saved.has("mob_rotation") and depth < 26 \
+			and SpdCampaign.boss(depth) == "" and not clock.has(RESPAWNER_ID):
+		clock.add(RESPAWNER_ID, SpdActorClock.BUFF_PRIORITY, RESPAWN_COOLDOWN)
 	_reveal()
 	return true
 

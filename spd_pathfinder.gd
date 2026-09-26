@@ -28,18 +28,19 @@ static func find_path(width: int, height: int, from: Vector2i, to: Vector2i,
 	var outward := [Vector2i(-1, -1), Vector2i(-1, 0), Vector2i(-1, 1),
 		Vector2i(0, -1), Vector2i(0, 1), Vector2i(1, -1),
 		Vector2i(1, 0), Vector2i(1, 1)]
-	while head < queue.size() and distance[start] == 2147483647:
+	while head < queue.size():
 		var index: int = queue[head]
 		head += 1
+		if index == start:
+			break
 		var origin := Vector2i(index % width, int(index / width))
 		for direction in outward:
 			var cell: Vector2i = origin + direction
 			if not _inside(cell, width, height):
 				continue
 			var neighbor := cell.x + cell.y * width
-			if distance[neighbor] <= distance[index] + 1:
-				continue
-			if neighbor == start or passable[neighbor] != 0:
+			if neighbor == start or (passable[neighbor] != 0
+					and distance[neighbor] > distance[index] + 1):
 				distance[neighbor] = distance[index] + 1
 				queue.append(neighbor)
 	if distance[start] == 2147483647:

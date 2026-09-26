@@ -22,6 +22,7 @@ OUT = Path(__file__).resolve().parents[1] / "PORT_INVENTORY.tsv"
 # active game still uses the older model. "partial" explicitly means that the
 # Java class has further rules, subclasses, or dependencies not yet ported.
 MAPPINGS = {
+    "SPD-classes/src/main/java/com/watabou/utils/BArray.java": ("ported_unwired", "spd_barray.gd"),
     "SPD-classes/src/main/java/com/watabou/utils/Point.java": ("ported_unwired", "spd_point.gd"),
     "SPD-classes/src/main/java/com/watabou/utils/PointF.java": ("ported_unwired", "spd_pointf.gd"),
     "SPD-classes/src/main/java/com/watabou/utils/Rect.java": ("ported_unwired", "spd_rect.gd"),

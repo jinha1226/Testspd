@@ -12,8 +12,8 @@ const SPECIAL_BASE := [1, 1, 2, 2, 2]
 static func room_quotas(depth: int, rng) -> Vector2i:
 	var region: int = clampi(int((depth - 1) / 5), 0, 4)
 	return Vector2i(
-		STANDARD_BASE[region] + _weighted_index(STANDARD_WEIGHTS[region], rng),
-		SPECIAL_BASE[region] + _weighted_index(SPECIAL_WEIGHTS[region], rng))
+		STANDARD_BASE[region] + rng.chances(STANDARD_WEIGHTS[region]),
+		SPECIAL_BASE[region] + rng.chances(SPECIAL_WEIGHTS[region]))
 
 
 static func create(width: int, height: int, depth: int, rng) -> Dictionary:
@@ -96,18 +96,6 @@ static func create(width: int, height: int, depth: int, rng) -> Dictionary:
 			edges.append(best_edge)
 	return {"rooms": rooms, "kinds": kinds, "edges": edges,
 		"standards": quotas.x, "specials": quotas.y}
-
-
-static func _weighted_index(weights: Array, rng) -> int:
-	var total := 0
-	for weight in weights:
-		total += int(weight)
-	var roll: int = rng.next_int(total)
-	for index in range(weights.size()):
-		roll -= int(weights[index])
-		if roll < 0:
-			return index
-	return weights.size() - 1
 
 
 static func _fits(candidate: Rect2i, existing: Array[Rect2i]) -> bool:

@@ -54,6 +54,10 @@ jobs:
           set -euo pipefail
           "$GODOT_BIN" --headless --path . --script res://tests/foundation.gd 2>&1 | tee foundation.log
           grep -Fq 'SPD foundation passed' foundation.log
+          "$GODOT_BIN" --headless --path . --script res://tests/rng_methods.gd 2>&1 | tee rng_methods.log
+          grep -Fq 'SPD Java Random methods passed' rng_methods.log
+          "$GODOT_BIN" --headless --path . --script res://tests/barray.gd 2>&1 | tee barray.log
+          grep -Fq 'SPD Java BArray methods passed' barray.log
 
       - name: Verify source-style pathfinding
         shell: bash
@@ -120,5 +124,13 @@ jobs:
           set -euo pipefail
           "$GODOT_BIN" --headless --path . --quit-after 8 2>&1 | tee boot.log
           if grep -Eq 'SCRIPT ERROR|Parse Error|Failed to load script' boot.log; then
+            exit 1
+          fi
+
+      - name: Reject runtime script errors in test logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq 'SCRIPT ERROR|Parse Error|Failed to load script|^ERROR:' ./*.log; then
             exit 1
           fi

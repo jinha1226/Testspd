@@ -57,7 +57,7 @@ SPD-classes/src/main/java/com/watabou/noosa/tweeners/ScaleTweener.java	3af6d39f7
 SPD-classes/src/main/java/com/watabou/noosa/tweeners/Tweener.java	fa36c9fb26ac13c1b396445a9adf0e517df22f663c99cf2b9ff10caad7885f3c	unported	-
 SPD-classes/src/main/java/com/watabou/noosa/ui/Component.java	166c8a21e52a805479d6e5513fd474ce315242f3e52fb7b8d35fb61f8f71ee3f	unported	-
 SPD-classes/src/main/java/com/watabou/noosa/ui/Cursor.java	1dcb3fa2d52954a172c881f5df89f606908454d1f436749f76ec7c2865aa573f	unported	-
-SPD-classes/src/main/java/com/watabou/utils/BArray.java	245ac1220c3dd2a3ba2b441150af76772fa9f9698bacb069b9147ea704dc6221	unported	-
+SPD-classes/src/main/java/com/watabou/utils/BArray.java	245ac1220c3dd2a3ba2b441150af76772fa9f9698bacb069b9147ea704dc6221	ported_unwired	spd_barray.gd
 SPD-classes/src/main/java/com/watabou/utils/BitmapCache.java	39f0a6c349e8cb62e39935290f6ec326d7286bd62f6eff8824b96bc14d42c9fe	unported	-
 SPD-classes/src/main/java/com/watabou/utils/BitmapFilm.java	93d3801a3f074c43a22274191ad4e99ee6ac593a4adb1293c5e1704d9365e80f	unported	-
 SPD-classes/src/main/java/com/watabou/utils/Bundlable.java	32f119d8532cab429da2752f47e37c5266202a08f1f48348b2cfe1d84479c391	unported	-

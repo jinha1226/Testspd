@@ -53,8 +53,10 @@ const MOB_STATS := {
 
 
 static func normal_int_range(rng, minimum: int, maximum: int) -> int:
-	# watabou.utils.Random.NormalIntRange: sum of two uniform rolls.
-	return mini(maximum, minimum + int((rng.randf() + rng.randf()) * (maximum - minimum + 1) / 2.0))
+	if rng.has_method("normal_int_range"):
+		return rng.normal_int_range(minimum, maximum)
+	# Combat helpers also accept Godot RandomNumberGenerator in standalone tests.
+	return minimum + int((rng.randf() + rng.randf()) * (maximum - minimum + 1) / 2.0)
 
 
 static func hit(rng, attack_skill: int, defense_skill: int) -> bool:

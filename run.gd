@@ -9,6 +9,9 @@ const SpdActorClock = preload("res://spd_actor_clock.gd")
 const SpdPathFinder = preload("res://spd_pathfinder.gd")
 const SpdCampaign = preload("res://spd_campaign.gd")
 const SpdRegularSpawner = preload("res://spd_regular_spawner.gd")
+const SpdLimitedDrops = preload("res://spd_limited_drops.gd")
+const SpdFloorSeed = preload("res://spd_floor_seed.gd")
+const SpdRoomPlan = preload("res://spd_room_plan.gd")
 
 const WIDTH := 36
 const HEIGHT := 36
@@ -36,17 +39,21 @@ var tiles := PackedInt32Array()
 var explored := PackedByteArray()
 var visible := PackedByteArray()
 var rooms: Array[Rect2i] = []
+var room_kinds: Array[String] = []
 var mobs: Array[Dictionary] = []
 var potions: Array[Vector2i] = []
 var items: Array[Dictionary] = []
 var hero := Vector2i.ZERO
 var stairs := Vector2i.ZERO
 var depth := 1
+var dungeon_seed := 0
 var hp := 20
 var max_hp := 20
 var potion_count := 0
 var food_count := 1
 var upgrade_count := 0
+var strength_drops := 0
+var upgrade_drops := 0
 var wand_charges := 0
 var hunger := 0
 var hunger_damage := 0.0
@@ -70,12 +77,15 @@ var _mob_rotation_index := 0
 
 
 func start(seed_value: int = 0) -> void:
-	rng.reset(seed_value if seed_value != 0 else Time.get_ticks_usec())
+	dungeon_seed = seed_value if seed_value != 0 else Time.get_ticks_usec()
+	rng.reset(dungeon_seed)
 	depth = 1
 	hp = max_hp
 	potion_count = 0
 	food_count = 1
 	upgrade_count = 0
+	strength_drops = 0
+	upgrade_drops = 0
 	wand_charges = 0
 	hunger = 0
 	hunger_damage = 0.0
@@ -95,6 +105,18 @@ func start(seed_value: int = 0) -> void:
 
 
 func _build_floor() -> void:
+	# Level.create uses an isolated, deterministic generator per depth.
+	rng.push_generator(SpdFloorSeed.for_depth(dungeon_seed, depth))
+	var scheduled_items: Array[String] = []
+	if depth < 26 and SpdCampaign.boss(depth) == "":
+		# Level.create schedules mandatory consumables before rolling the map.
+		scheduled_items.append("food")
+		if SpdLimitedDrops.strength_needed(depth, strength_drops, rng):
+			strength_drops += 1
+			scheduled_items.append("strength")
+		if SpdLimitedDrops.upgrade_needed(depth, upgrade_drops, rng):
+			upgrade_drops += 1
+			scheduled_items.append("upgrade")
 	clock.clear()
 	clock.add(0, SpdActorClock.HERO_PRIORITY)
 	next_actor_id = 1
@@ -105,6 +127,7 @@ func _build_floor() -> void:
 	visible.resize(WIDTH * HEIGHT)
 	visible.fill(0)
 	rooms.clear()
+	room_kinds.clear()
 	mobs.clear()
 	potions.clear()
 	items.clear()
@@ -117,6 +140,9 @@ func _build_floor() -> void:
 		_build_boss_layout()
 	else:
 		_build_regular_layout()
+	if room_kinds.is_empty():
+		for _room in rooms:
+			room_kinds.append("standard")
 
 	_mark_doors()
 	_paint_terrain()
@@ -128,52 +154,23 @@ func _build_floor() -> void:
 	tiles[_index(stairs)] = EXIT if depth < 26 else FLOOR
 	if depth == 26:
 		items.append({"kind": "amulet", "pos": stairs, "tier": 0})
-	elif SpdCampaign.boss(depth) == "":
-		_place_floor_items()
 	_reveal()
 	_spawn_mobs()
+	if SpdCampaign.boss(depth) == "" and depth < 26:
+		_place_floor_items(scheduled_items)
 	if depth < 26 and SpdCampaign.boss(depth) == "":
 		clock.add(RESPAWNER_ID, SpdActorClock.BUFF_PRIORITY, RESPAWN_COOLDOWN)
+	rng.pop_generator()
 
 
 func _build_regular_layout() -> void:
-	# This room placer is still provisional. Later work ports the Java builders.
-	# Each room links to the previous one; occasional i -> i+2 links make loops.
-	for attempt in range(180):
-		var size := Vector2i(rng.randi_range(5, 8), rng.randi_range(5, 8))
-		var position := Vector2i(
-			rng.randi_range(2, WIDTH - size.x - 3),
-			rng.randi_range(2, HEIGHT - size.y - 3)
-		)
-		var room := Rect2i(position, size)
-		var overlaps := false
-		for existing in rooms:
-			if room.grow(1).intersects(existing):
-				overlaps = true
-				break
-		if overlaps:
-			continue
+	var plan: Dictionary = SpdRoomPlan.create(WIDTH, HEIGHT, depth, rng)
+	rooms = plan["rooms"]
+	room_kinds = plan["kinds"]
+	for room in rooms:
 		_carve_room(room)
-		if not rooms.is_empty():
-			_carve_corridor(_room_center(rooms.back()), _room_center(room))
-		rooms.append(room)
-		if rooms.size() >= 10:
-			break
-
-	# The map is large enough for many rooms; this keeps even unlucky seeds playable.
-	if rooms.size() < 2:
-		rooms.clear()
-		tiles.fill(WALL)
-		var first := Rect2i(5, 5, 8, 8)
-		var last := Rect2i(23, 23, 8, 8)
-		_carve_room(first)
-		_carve_room(last)
-		_carve_corridor(_room_center(first), _room_center(last))
-		rooms.append_array([first, last])
-	for room_index in range(rooms.size() - 2):
-		if rng.randi_range(0, 3) == 0:
-			_carve_corridor(_room_center(rooms[room_index]),
-				_room_center(rooms[room_index + 2]))
+	for edge in plan["edges"]:
+		_carve_corridor(_room_center(rooms[edge.x]), _room_center(rooms[edge.y]))
 
 
 
@@ -222,27 +219,69 @@ func _decorate_boss_arena() -> void:
 	tiles[_index(center)] = FLOOR
 
 
-func _place_floor_items() -> void:
-	# Guaranteed progression drops while the original item generator is ported.
-	# Placement stays out of the entrance, exit, and closed doors.
-	for room_index in range(1, rooms.size() - 1):
-		var cell := _room_center(rooms[room_index])
-		if room_index == 2 or room_index == 5:
-			potions.append(cell)
-		elif room_index == 3:
-			items.append({"kind": "food", "pos": cell, "tier": 0})
-		elif room_index == 4:
-			items.append({"kind": "upgrade", "pos": cell, "tier": 0})
-		elif room_index == 6 and (depth % 5 == 1 or depth % 5 == 3):
-			items.append({"kind": "strength", "pos": cell, "tier": 0})
-		elif room_index == 7:
-			items.append({"kind": "weapon", "pos": cell,
-				"tier": mini(5, 1 + int(depth / 5))})
-		elif room_index == 8:
-			items.append({"kind": "armor", "pos": cell,
-				"tier": mini(5, 1 + int(depth / 5))})
-	if depth >= 3:
-		items.append({"kind": "wand", "pos": _room_center(rooms[1]), "tier": 0})
+func _place_floor_items(scheduled_items: Array[String]) -> void:
+	# Mandatory drops follow Level.create. The remaining three-to-five drops
+	# still use a reduced item pool until Generator and the inventory are ported.
+	for kind in scheduled_items:
+		_drop_floor_item(kind)
+	# RegularLevel.createItems rolls 3/4/5 random items with weights 6/3/1.
+	var roll := rng.next_int(10)
+	var random_count := 3 if roll < 6 else (4 if roll < 9 else 5)
+	# Keep one healing item available while other potion types are absent.
+	_drop_floor_item("potion")
+	for _drop in range(random_count - 1):
+		var category := rng.next_int(10)
+		if category < 5:
+			_drop_floor_item("potion")
+		elif category < 7:
+			_drop_floor_item("weapon")
+		elif category < 9:
+			_drop_floor_item("armor")
+		else:
+			_drop_floor_item("wand")
+
+
+func _drop_floor_item(kind: String) -> void:
+	var cell := _random_drop_cell()
+	if cell == Vector2i(-1, -1):
+		return
+	if kind == "potion":
+		potions.append(cell)
+	else:
+		var tier := 0
+		if kind == "weapon" or kind == "armor":
+			tier = mini(5, 1 + int(depth / 5))
+		items.append({"kind": kind, "pos": cell, "tier": tier})
+	_trample(cell)
+
+
+func _random_drop_cell() -> Vector2i:
+	# RegularLevel.randomDropCell samples standard rooms, excluding their
+	# entrance room, exit cell, occupied heaps, and enemies.
+	if rooms.size() < 2:
+		return Vector2i(-1, -1)
+	for _attempt in range(100):
+		var room_index := rng.next_int(rooms.size())
+		if room_index == 0 or room_kinds[room_index] == "special_placeholder":
+			continue
+		var room: Rect2i = rooms[room_index]
+		var cell := Vector2i(
+			rng.randi_range(room.position.x + 1, room.end.x - 2),
+			rng.randi_range(room.position.y + 1, room.end.y - 2))
+		if _can_drop_at(cell):
+			return cell
+	return Vector2i(-1, -1)
+
+
+func _can_drop_at(cell: Vector2i) -> bool:
+	if cell == stairs or cell == hero or is_wall_tile(tile_at(cell)) \
+			or tile_at(cell) == CLOSED_DOOR or _mob_index_at(cell) >= 0 \
+			or potions.has(cell):
+		return false
+	for item in items:
+		if item["pos"] == cell:
+			return false
+	return true
 
 
 func _spawn_mobs() -> void:
@@ -259,7 +298,7 @@ func _spawn_mobs() -> void:
 	_mob_rotation = SpdCampaign.rotation(depth)
 	_mob_rotation_index = 0
 	var placements: Array[Dictionary] = SpdRegularSpawner.positions(rng, WIDTH, HEIGHT,
-		tiles, rooms, hero, stairs, visible, count, depth,
+		tiles, rooms, room_kinds, hero, stairs, visible, count, depth,
 		[WALL, WALL_DECO], CLOSED_DOOR, _next_regular_mob_kind)
 	for placement in placements:
 		_spawn_mob(placement["kind"], placement["pos"])
@@ -742,7 +781,7 @@ func _respawn_cell() -> Vector2i:
 	for _attempt in range(30):
 		for _room_try in range(30):
 			var room_index := rng.next_int(rooms.size())
-			if room_index == 0:
+			if room_index == 0 or room_kinds[room_index] == "special_placeholder":
 				continue
 			var room: Rect2i = rooms[room_index]
 			var cell := Vector2i(
@@ -1009,13 +1048,16 @@ func snapshot() -> Dictionary:
 	for bit in explored:
 		saved_explored.append(bit)
 	return {"map_size": [WIDTH, HEIGHT], "tiles": saved_tiles, "explored": saved_explored,
-		"rooms": saved_rooms, "mobs": saved_mobs, "potions": saved_potions,
+		"rooms": saved_rooms, "room_kinds": room_kinds.duplicate(),
+		"mobs": saved_mobs, "potions": saved_potions,
 		"items": saved_items,
 		"hero": _vector_data(hero), "stairs": _vector_data(stairs),
-		"depth": depth, "hp": hp, "max_hp": max_hp,
+		"depth": depth, "dungeon_seed": dungeon_seed,
+		"hp": hp, "max_hp": max_hp,
 		"potion_count": potion_count, "healing_left": healing_left,
 		"ooze_left": ooze_left,
 		"food_count": food_count, "upgrade_count": upgrade_count,
+		"strength_drops": strength_drops, "upgrade_drops": upgrade_drops,
 		"wand_charges": wand_charges,
 		"hunger": hunger, "hunger_damage": hunger_damage,
 		"level": level, "experience": experience, "strength": strength,
@@ -1036,14 +1078,21 @@ func restore_snapshot(saved: Dictionary) -> bool:
 	var saved_tiles = saved.get("tiles")
 	var saved_explored = saved.get("explored")
 	var saved_rooms = saved.get("rooms")
+	var saved_room_kinds = saved.get("room_kinds", [])
 	var saved_mobs = saved.get("mobs")
 	var saved_potions = saved.get("potions")
 	var saved_items = saved.get("items", [])
 	if typeof(saved_tiles) != TYPE_ARRAY or saved_tiles.size() != WIDTH * HEIGHT \
 			or typeof(saved_explored) != TYPE_ARRAY or saved_explored.size() != WIDTH * HEIGHT \
-			or typeof(saved_rooms) != TYPE_ARRAY or typeof(saved_mobs) != TYPE_ARRAY \
+			or typeof(saved_rooms) != TYPE_ARRAY or typeof(saved_room_kinds) != TYPE_ARRAY \
+			or typeof(saved_mobs) != TYPE_ARRAY \
 			or typeof(saved_potions) != TYPE_ARRAY or typeof(saved_items) != TYPE_ARRAY:
 		return false
+	if not saved_room_kinds.is_empty() and saved_room_kinds.size() != saved_rooms.size():
+		return false
+	for kind in saved_room_kinds:
+		if not ["entrance", "standard", "special_placeholder", "exit"].has(kind):
+			return false
 	if not _valid_saved_vector(saved.get("hero")) or not _valid_saved_vector(saved.get("stairs")):
 		return false
 	for key in ["depth", "hp", "max_hp", "potion_count", "healing_left", "turns", "next_actor_id"]:
@@ -1055,6 +1104,8 @@ func restore_snapshot(saved: Dictionary) -> bool:
 		return false
 	if typeof(saved.get("message")) != TYPE_STRING or typeof(saved.get("rng")) != TYPE_ARRAY \
 			or typeof(saved.get("clock")) != TYPE_DICTIONARY:
+		return false
+	if saved.has("dungeon_seed") and not _is_saved_int(saved["dungeon_seed"]):
 		return false
 	var restored_tiles := PackedInt32Array()
 	for value in saved_tiles:
@@ -1112,6 +1163,7 @@ func restore_snapshot(saved: Dictionary) -> bool:
 		restored_items.append({"kind": value["kind"], "pos": _data_vector(value["pos"]),
 			"tier": int(value["tier"])})
 	var progress_keys := ["food_count", "upgrade_count", "wand_charges",
+		"strength_drops", "upgrade_drops",
 		"ooze_left",
 		"hunger", "level", "experience", "strength",
 		"weapon_tier", "weapon_level", "armor_tier", "armor_level"]
@@ -1144,12 +1196,20 @@ func restore_snapshot(saved: Dictionary) -> bool:
 	visible.resize(WIDTH * HEIGHT)
 	visible.fill(0)
 	rooms = restored_rooms
+	room_kinds.clear()
+	if saved_room_kinds.is_empty():
+		for _room in rooms:
+			room_kinds.append("standard")
+	else:
+		for kind in saved_room_kinds:
+			room_kinds.append(kind)
 	mobs = restored_mobs
 	potions = restored_potions
 	items = restored_items
 	hero = _data_vector(saved["hero"])
 	stairs = _data_vector(saved["stairs"])
 	depth = int(saved["depth"])
+	dungeon_seed = int(saved.get("dungeon_seed", 0))
 	hp = int(saved["hp"])
 	max_hp = int(saved["max_hp"])
 	potion_count = int(saved["potion_count"])
@@ -1157,6 +1217,8 @@ func restore_snapshot(saved: Dictionary) -> bool:
 	ooze_left = int(saved.get("ooze_left", 0))
 	food_count = int(saved.get("food_count", 1))
 	upgrade_count = int(saved.get("upgrade_count", 0))
+	strength_drops = int(saved.get("strength_drops", 0))
+	upgrade_drops = int(saved.get("upgrade_drops", 0))
 	wand_charges = int(saved.get("wand_charges", 0))
 	hunger = int(saved.get("hunger", 0))
 	hunger_damage = float(saved.get("hunger_damage", 0.0))

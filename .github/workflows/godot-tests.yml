@@ -78,6 +78,15 @@ jobs:
           "$GODOT_BIN" --headless --path . --script res://tests/respawner.gd 2>&1 | tee respawner.log
           grep -Fq 'SPD respawner passed' respawner.log
 
+      - name: Verify floor seeds, room quotas, and limited drops
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path . --script res://tests/room_plan.gd 2>&1 | tee room_plan.log
+          grep -Fq 'SPD room quotas passed' room_plan.log
+          "$GODOT_BIN" --headless --path . --script res://tests/limited_drops.gd 2>&1 | tee limited_drops.log
+          grep -Fq 'SPD limited drops passed' limited_drops.log
+
       - name: Verify resume and autosave UI
         shell: bash
         run: |

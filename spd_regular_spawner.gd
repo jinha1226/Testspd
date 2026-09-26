@@ -13,17 +13,20 @@ const DIRECTIONS := [
 
 
 static func positions(rng, width: int, height: int, tiles: PackedInt32Array,
-		rooms: Array[Rect2i], entrance: Vector2i, exit_cell: Vector2i,
+		rooms: Array[Rect2i], room_kinds: Array[String],
+		entrance: Vector2i, exit_cell: Vector2i,
 		entrance_fov: PackedByteArray, count: int, depth: int,
 		wall_tiles: Array[int], closed_door: int,
 		create_mob: Callable) -> Array[Dictionary]:
 	var placed: Array[Dictionary] = []
-	if rooms.is_empty() or tiles.size() != width * height \
+	if rooms.is_empty() or room_kinds.size() != rooms.size() \
+			or tiles.size() != width * height \
 			or entrance_fov.size() != width * height:
 		return placed
 	var room_order: Array[int] = []
 	for room_index in range(rooms.size()):
-		room_order.append(room_index)
+		if room_kinds[room_index] != "special_placeholder":
+			room_order.append(room_index)
 	# java.util.Collections.shuffle uses this descending Fisher-Yates order.
 	for shuffle_index in range(room_order.size() - 1, 0, -1):
 		var other_index: int = rng.next_int(shuffle_index + 1)
